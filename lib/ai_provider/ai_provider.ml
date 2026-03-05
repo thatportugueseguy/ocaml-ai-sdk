@@ -12,3 +12,6 @@ module Call_options = Call_options
 module Generate_result = Generate_result
 module Stream_part = Stream_part
 module Stream_result = Stream_result
+module Language_model = Language_model
+module Provider = Provider
+module Middleware = Middleware
