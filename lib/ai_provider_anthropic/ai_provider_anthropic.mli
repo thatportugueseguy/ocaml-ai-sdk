@@ -17,3 +17,4 @@ module Sse = Sse
 module Convert_stream = Convert_stream
 module Beta_headers = Beta_headers
 module Anthropic_api = Anthropic_api
+module Anthropic_model = Anthropic_model
