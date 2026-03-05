@@ -10,3 +10,6 @@ module Anthropic_options = Anthropic_options
 module Cache_control_options = Cache_control_options
 module Convert_prompt = Convert_prompt
 module Convert_tools = Convert_tools
+module Anthropic_error = Anthropic_error
+module Convert_usage = Convert_usage
+module Convert_response = Convert_response
