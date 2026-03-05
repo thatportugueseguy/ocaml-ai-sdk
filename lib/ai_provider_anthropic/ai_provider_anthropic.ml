@@ -4,3 +4,4 @@ module Thinking = Thinking
 module Cache_control = Cache_control
 module Anthropic_options = Anthropic_options
 module Cache_control_options = Cache_control_options
+module Convert_prompt = Convert_prompt
