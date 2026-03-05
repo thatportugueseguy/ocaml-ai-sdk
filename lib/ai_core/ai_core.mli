@@ -10,3 +10,5 @@ module Ui_message_chunk = Ui_message_chunk
 module Prompt_builder = Prompt_builder
 module Ui_message_stream = Ui_message_stream
 module Generate_text = Generate_text
+module Stream_text_result = Stream_text_result
+module Stream_text = Stream_text
