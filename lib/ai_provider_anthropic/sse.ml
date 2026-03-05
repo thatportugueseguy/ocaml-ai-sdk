@@ -1,0 +1,48 @@
+type event = {
+  event_type : string;
+  data : string;
+}
+
+let parse_events lines =
+  let current_event = ref "" in
+  let current_data = Buffer.create 256 in
+  let stream, push = Lwt_stream.create () in
+  let emit () =
+    if String.length !current_event > 0 || Buffer.length current_data > 0 then begin
+      let evt = { event_type = !current_event; data = Buffer.contents current_data } in
+      push (Some evt);
+      current_event := "";
+      Buffer.clear current_data
+    end
+  in
+  (* Background task that reads lines and emits events *)
+  Lwt.async (fun () ->
+    let%lwt () =
+      Lwt_stream.iter
+        (fun line ->
+          if String.length line = 0 then
+            (* Blank line = event boundary *)
+            emit ()
+          else if String.length line >= 1 && String.get line 0 = ':' then
+            (* Comment -- ignore *)
+            ()
+          else if String.length line >= 6 && String.sub line 0 6 = "event:" then begin
+            let value = String.trim (String.sub line 6 (String.length line - 6)) in
+            current_event := value
+          end
+          else if String.length line >= 5 && String.sub line 0 5 = "data:" then begin
+            let value = String.sub line 5 (String.length line - 5) in
+            let value =
+              if String.length value > 0 && String.get value 0 = ' ' then String.sub value 1 (String.length value - 1)
+              else value
+            in
+            if Buffer.length current_data > 0 then Buffer.add_char current_data '\n';
+            Buffer.add_string current_data value
+          end)
+        lines
+    in
+    (* Emit any trailing event *)
+    emit ();
+    push None;
+    Lwt.return_unit);
+  stream

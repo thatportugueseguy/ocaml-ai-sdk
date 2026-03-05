@@ -13,3 +13,5 @@ module Convert_tools = Convert_tools
 module Anthropic_error = Anthropic_error
 module Convert_usage = Convert_usage
 module Convert_response = Convert_response
+module Sse = Sse
+module Convert_stream = Convert_stream
