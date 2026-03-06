@@ -22,6 +22,7 @@ let () =
     let anthropic_opts = { Ai_provider_anthropic.Anthropic_options.default with thinking = Some thinking } in
     let provider_options = Ai_provider_anthropic.Anthropic_options.to_provider_options anthropic_opts in
 
+    (* max_output_tokens must be > budget_tokens for Anthropic *)
     let opts =
       {
         (Ai_provider.Call_options.default
@@ -41,6 +42,7 @@ let () =
              ])
         with
         provider_options;
+        max_output_tokens = Some 16384;
       }
     in
 
