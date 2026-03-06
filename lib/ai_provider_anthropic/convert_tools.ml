@@ -32,18 +32,15 @@ let convert_tools ~tools ~tool_choice =
     anthropic_tools, choice
 
 let anthropic_tool_to_yojson tool =
-  let fields = [ "name", `String tool.name; "input_schema", tool.input_schema ] in
   let fields =
-    match tool.description with
-    | Some d -> ("description", `String d) :: fields
-    | None -> fields
-  in
-  let fields =
-    match tool.cache_control with
-    | Some cc ->
-      (match cc.Cache_control.cache_type with
-      | Ephemeral -> fields @ [ "cache_control", `Assoc [ "type", `String "ephemeral" ] ])
-    | None -> fields
+    List.concat
+      [
+        [ "name", `String tool.name; "input_schema", tool.input_schema ];
+        (match tool.description with
+        | Some d -> [ "description", `String d ]
+        | None -> []);
+        Cache_control.to_yojson_fields tool.cache_control;
+      ]
   in
   `Assoc fields
 

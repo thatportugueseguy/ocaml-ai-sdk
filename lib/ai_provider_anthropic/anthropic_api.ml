@@ -1,51 +1,42 @@
 let make_request_body ~model ~messages ?system ?tools ?tool_choice ?max_tokens ?temperature ?top_p ?top_k
   ?stop_sequences ?thinking ?stream () =
-  let fields = ref [] in
-  let add key value = fields := (key, value) :: !fields in
-  add "model" (`String model);
-  add "messages" (`List (List.map Convert_prompt.anthropic_message_to_yojson messages));
-  (* System *)
-  (match system with
-  | Some s -> add "system" (`String s)
-  | None -> ());
-  (* Tools *)
-  (match tools with
-  | Some (_ :: _ as ts) -> add "tools" (`List (List.map Convert_tools.anthropic_tool_to_yojson ts))
-  | Some [] | None -> ());
-  (* Tool choice *)
-  (match tool_choice with
-  | Some tc -> add "tool_choice" (Convert_tools.anthropic_tool_choice_to_yojson tc)
-  | None -> ());
-  (* Max tokens *)
-  (match max_tokens with
-  | Some n -> add "max_tokens" (`Int n)
-  | None -> add "max_tokens" (`Int 4096));
-  (* Temperature *)
-  (match temperature with
-  | Some t -> add "temperature" (`Float t)
-  | None -> ());
-  (* Top P *)
-  (match top_p with
-  | Some p -> add "top_p" (`Float p)
-  | None -> ());
-  (* Top K *)
-  (match top_k with
-  | Some k -> add "top_k" (`Int k)
-  | None -> ());
-  (* Stop sequences *)
-  (match stop_sequences with
-  | Some (_ :: _ as ss) -> add "stop_sequences" (`List (List.map (fun s -> `String s) ss))
-  | Some [] | None -> ());
-  (* Thinking *)
-  (match thinking with
-  | Some t when t.Thinking.enabled ->
-    add "thinking" (`Assoc [ "type", `String "enabled"; "budget_tokens", `Int (Thinking.to_int t.budget_tokens) ])
-  | Some _ | None -> ());
-  (* Stream *)
-  (match stream with
-  | Some true -> add "stream" (`Bool true)
-  | Some false | None -> ());
-  `Assoc (List.rev !fields)
+  let opt key f = function
+    | Some v -> [ key, f v ]
+    | None -> []
+  in
+  let fields =
+    List.concat
+      [
+        [ "model", `String model ];
+        [ "messages", `List (List.map Convert_prompt.anthropic_message_to_yojson messages) ];
+        opt "system" (fun s -> `String s) system;
+        (match tools with
+        | Some (_ :: _ as ts) -> [ "tools", `List (List.map Convert_tools.anthropic_tool_to_yojson ts) ]
+        | Some [] | None -> []);
+        opt "tool_choice" Convert_tools.anthropic_tool_choice_to_yojson tool_choice;
+        [
+          ( "max_tokens",
+            `Int
+              (match max_tokens with
+              | Some n -> n
+              | None -> 4096) );
+        ];
+        opt "temperature" (fun t -> `Float t) temperature;
+        opt "top_p" (fun p -> `Float p) top_p;
+        opt "top_k" (fun k -> `Int k) top_k;
+        (match stop_sequences with
+        | Some (_ :: _ as ss) -> [ "stop_sequences", `List (List.map (fun s -> `String s) ss) ]
+        | Some [] | None -> []);
+        (match thinking with
+        | Some t when t.Thinking.enabled ->
+          [ "thinking", `Assoc [ "type", `String "enabled"; "budget_tokens", `Int (Thinking.to_int t.budget_tokens) ] ]
+        | Some _ | None -> []);
+        (match stream with
+        | Some true -> [ "stream", `Bool true ]
+        | Some false | None -> []);
+      ]
+  in
+  `Assoc fields
 
 let make_headers ~(config : Config.t) ~extra_headers =
   let base_headers = [ "content-type", "application/json"; "anthropic-version", "2023-06-01" ] in

@@ -158,11 +158,7 @@ let convert_messages messages =
 
 (* JSON serialization *)
 
-let cache_control_to_yojson = function
-  | None -> []
-  | Some (cc : Cache_control.t) ->
-  match cc.cache_type with
-  | Ephemeral -> [ "cache_control", `Assoc [ "type", `String "ephemeral" ] ]
+let cache_control_to_yojson = Cache_control.to_yojson_fields
 
 let image_source_to_yojson = function
   | Base64_image { media_type; data } ->

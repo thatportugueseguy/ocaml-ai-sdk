@@ -71,8 +71,8 @@ let transform events ~warnings =
               Hashtbl.remove blocks index
             | "message_delta" ->
               let delta = member "delta" json in
-              let stop_reason = try Some (member "stop_reason" delta |> to_string) with _ -> None in
-              let usage_json = try Some (member "usage" json) with _ -> None in
+              let stop_reason = try Some (member "stop_reason" delta |> to_string) with Type_error _ -> None in
+              let usage_json = try Some (member "usage" json) with Type_error _ -> None in
               let usage =
                 match usage_json with
                 | Some u -> Convert_usage.to_usage (Convert_usage.anthropic_usage_of_yojson u)
