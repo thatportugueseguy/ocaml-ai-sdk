@@ -1,5 +1,3 @@
-let po = Ai_provider.Provider_options.empty
-
 (* Extract text from a message — handles both v5 "content" string
    and v6 "parts" array formats from useChat *)
 let extract_text_from_message msg =
@@ -31,8 +29,14 @@ let parse_messages_from_body body_json =
       let text = extract_text_from_message msg in
       match role with
       | "system" -> Some (Ai_provider.Prompt.System { content = text })
-      | "user" -> Some (Ai_provider.Prompt.User { content = [ Text { text; provider_options = po } ] })
-      | "assistant" -> Some (Ai_provider.Prompt.Assistant { content = [ Text { text; provider_options = po } ] })
+      | "user" ->
+        Some
+          (Ai_provider.Prompt.User
+             { content = [ Text { text; provider_options = Ai_provider.Provider_options.empty } ] })
+      | "assistant" ->
+        Some
+          (Ai_provider.Prompt.Assistant
+             { content = [ Text { text; provider_options = Ai_provider.Provider_options.empty } ] })
       | _ -> None)
     messages_json
 

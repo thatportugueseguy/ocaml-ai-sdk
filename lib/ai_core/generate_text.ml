@@ -2,7 +2,7 @@
 let execute_tool_call ~tools (content : Ai_provider.Content.t) =
   match content with
   | Tool_call { tool_call_id; tool_name; args; _ } ->
-    let args_json = try Yojson.Safe.from_string args with Yojson.Json_error _ -> `String args in
+    let args_json = Core_tool.safe_parse_json_args args in
     (match List.assoc_opt tool_name tools with
     | None ->
       Lwt.return
@@ -37,7 +37,7 @@ let parse_content (content : Ai_provider.Content.t list) =
         if Buffer.length reasoning > 0 then Buffer.add_char reasoning '\n';
         Buffer.add_string reasoning t
       | Tool_call { tool_call_id; tool_name; args; _ } ->
-        let args_json = try Yojson.Safe.from_string args with Yojson.Json_error _ -> `String args in
+        let args_json = Core_tool.safe_parse_json_args args in
         tool_calls := { Generate_text_result.tool_call_id; tool_name; args = args_json } :: !tool_calls
       | File _ -> ())
     content;
@@ -47,16 +47,7 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
   ?(max_steps = 1) ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?headers ?provider_options
   ?on_step_finish () =
   (* Build initial messages *)
-  let initial_messages =
-    match prompt, messages with
-    | Some p, None -> Prompt_builder.messages_of_prompt ?system ~prompt:p ()
-    | None, Some msgs ->
-      (match system with
-      | Some s -> Ai_provider.Prompt.System { content = s } :: msgs
-      | None -> msgs)
-    | Some _, Some _ -> failwith "Cannot provide both ~prompt and ~messages"
-    | None, None -> failwith "Must provide either ~prompt or ~messages"
-  in
+  let initial_messages = Prompt_builder.resolve_messages ?system ?prompt ?messages () in
   let tools =
     match tools with
     | Some t -> t
@@ -80,25 +71,14 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
             usage = { input_tokens = 0; output_tokens = 0; total_tokens = None };
           }
       in
-      let all_text =
-        List.rev steps
-        |> List.map (fun (s : Generate_text_result.step) -> s.text)
-        |> List.filter (fun s -> String.length s > 0)
-        |> String.concat "\n"
-      in
-      let all_reasoning =
-        List.rev steps
-        |> List.map (fun (s : Generate_text_result.step) -> s.reasoning)
-        |> List.filter (fun s -> String.length s > 0)
-        |> String.concat "\n"
-      in
+      let rev_steps = List.rev steps in
       Lwt.return
         {
-          Generate_text_result.text = all_text;
-          reasoning = all_reasoning;
+          Generate_text_result.text = Generate_text_result.join_text rev_steps;
+          reasoning = Generate_text_result.join_reasoning rev_steps;
           tool_calls = List.rev all_tool_calls;
           tool_results = List.rev all_tool_results;
-          steps = List.rev steps;
+          steps = rev_steps;
           finish_reason = last_step.finish_reason;
           usage = total_usage;
           response = { id = None; model = None; headers = []; body = `Null };
@@ -106,39 +86,19 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
         }
     end
     else begin
-      let opts : Ai_provider.Call_options.t =
-        {
-          prompt = current_messages;
-          mode = Regular;
-          tools = provider_tools;
-          tool_choice;
-          max_output_tokens;
-          temperature;
-          top_p;
-          top_k;
-          stop_sequences =
-            (match stop_sequences with
-            | Some s -> s
-            | None -> []);
-          seed;
-          frequency_penalty = None;
-          presence_penalty = None;
-          provider_options =
-            (match provider_options with
-            | Some po -> po
-            | None -> Ai_provider.Provider_options.empty);
-          headers =
-            (match headers with
-            | Some h -> h
-            | None -> []);
-          abort_signal = None;
-        }
+      let opts =
+        Prompt_builder.make_call_options ~messages:current_messages ~tools:provider_tools ?tool_choice
+          ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?provider_options ?headers ()
       in
       let%lwt result = Ai_provider.Language_model.generate model opts in
       let text, reasoning, tool_calls = parse_content result.content in
       let new_usage = Generate_text_result.add_usage total_usage result.usage in
       (* Check if we need to execute tools *)
-      let has_tool_calls = tool_calls <> [] in
+      let has_tool_calls =
+        match tool_calls with
+        | [] -> false
+        | _ :: _ -> true
+      in
       let should_continue =
         has_tool_calls
         && step_num < max_steps
@@ -161,9 +121,7 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
         let step : Generate_text_result.step =
           { text; reasoning; tool_calls; tool_results; finish_reason = result.finish_reason; usage = result.usage }
         in
-        (match on_step_finish with
-        | Some f -> f step
-        | None -> ());
+        Option.iter (fun f -> f step) on_step_finish;
         (* Append assistant + tool results for next iteration *)
         let updated_messages =
           Prompt_builder.append_assistant_and_tool_results ~messages:current_messages ~assistant_content:result.content
@@ -179,26 +137,12 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
         let step : Generate_text_result.step =
           { text; reasoning; tool_calls; tool_results = []; finish_reason = result.finish_reason; usage = result.usage }
         in
-        (match on_step_finish with
-        | Some f -> f step
-        | None -> ());
+        Option.iter (fun f -> f step) on_step_finish;
         let all_steps = List.rev (step :: steps) in
-        let all_text =
-          all_steps
-          |> List.map (fun (s : Generate_text_result.step) -> s.text)
-          |> List.filter (fun s -> String.length s > 0)
-          |> String.concat "\n"
-        in
-        let all_reasoning =
-          all_steps
-          |> List.map (fun (s : Generate_text_result.step) -> s.reasoning)
-          |> List.filter (fun s -> String.length s > 0)
-          |> String.concat "\n"
-        in
         Lwt.return
           {
-            Generate_text_result.text = all_text;
-            reasoning = all_reasoning;
+            Generate_text_result.text = Generate_text_result.join_text all_steps;
+            reasoning = Generate_text_result.join_reasoning all_steps;
             tool_calls = List.rev (List.rev_append tool_calls all_tool_calls);
             tool_results = List.rev all_tool_results;
             steps = all_steps;

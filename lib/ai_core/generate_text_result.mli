@@ -34,5 +34,11 @@ type t = {
   warnings : Ai_provider.Warning.t list;
 }
 
+(** Concatenate text from all steps, separated by newlines. *)
+val join_text : step list -> string
+
+(** Concatenate reasoning from all steps, separated by newlines. *)
+val join_reasoning : step list -> string
+
 (** Combine two usage records, summing tokens. *)
 val add_usage : Ai_provider.Usage.t -> Ai_provider.Usage.t -> Ai_provider.Usage.t

@@ -32,6 +32,12 @@ type t = {
   warnings : Ai_provider.Warning.t list;
 }
 
+let join_text steps =
+  steps |> List.map (fun (s : step) -> s.text) |> List.filter (fun s -> String.length s > 0) |> String.concat "\n"
+
+let join_reasoning steps =
+  steps |> List.map (fun (s : step) -> s.reasoning) |> List.filter (fun s -> String.length s > 0) |> String.concat "\n"
+
 let add_usage (a : Ai_provider.Usage.t) (b : Ai_provider.Usage.t) : Ai_provider.Usage.t =
   let input_tokens = a.input_tokens + b.input_tokens in
   let output_tokens = a.output_tokens + b.output_tokens in

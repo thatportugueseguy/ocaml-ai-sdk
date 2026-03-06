@@ -94,7 +94,7 @@ let consume_provider_stream ~id_gen ~push ~on_chunk provider_stream =
           (match Hashtbl.find_opt tool_calls tool_call_id with
           | Some (tool_name, buf) ->
             let args_str = Buffer.contents buf in
-            let args = try Yojson.Safe.from_string args_str with Yojson.Json_error _ -> `String args_str in
+            let args = Core_tool.safe_parse_json_args args_str in
             completed_tool_calls := { Generate_text_result.tool_call_id; tool_name; args } :: !completed_tool_calls;
             emit (Text_stream_part.Tool_call { tool_call_id; tool_name; args });
             Hashtbl.remove tool_calls tool_call_id
@@ -115,16 +115,7 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
   ?(max_steps = 1) ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?headers ?provider_options
   ?on_step_finish ?on_chunk ?on_finish () =
   (* Build initial messages *)
-  let initial_messages =
-    match prompt, messages with
-    | Some p, None -> Prompt_builder.messages_of_prompt ?system ~prompt:p ()
-    | None, Some msgs ->
-      (match system with
-      | Some s -> Ai_provider.Prompt.System { content = s } :: msgs
-      | None -> msgs)
-    | Some _, Some _ -> failwith "Cannot provide both ~prompt and ~messages"
-    | None, None -> failwith "Must provide either ~prompt or ~messages"
-  in
+  let initial_messages = Prompt_builder.resolve_messages ?system ?prompt ?messages () in
   let tools =
     match tools with
     | Some t -> t
@@ -168,47 +159,27 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
       end
       else begin
         emit Text_stream_part.Start_step;
-        let opts : Ai_provider.Call_options.t =
-          {
-            prompt = current_messages;
-            mode = Regular;
-            tools = provider_tools;
-            tool_choice;
-            max_output_tokens;
-            temperature;
-            top_p;
-            top_k;
-            stop_sequences =
-              (match stop_sequences with
-              | Some s -> s
-              | None -> []);
-            seed;
-            frequency_penalty = None;
-            presence_penalty = None;
-            provider_options =
-              (match provider_options with
-              | Some po -> po
-              | None -> Ai_provider.Provider_options.empty);
-            headers =
-              (match headers with
-              | Some h -> h
-              | None -> []);
-            abort_signal = None;
-          }
+        let opts =
+          Prompt_builder.make_call_options ~messages:current_messages ~tools:provider_tools ?tool_choice
+            ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?provider_options ?headers ()
         in
         let%lwt stream_result = Ai_provider.Language_model.stream model opts in
         let%lwt text, reasoning, tool_calls, fr, step_usage =
           consume_provider_stream ~id_gen ~push:push_full ~on_chunk stream_result.stream
         in
         let new_total = Generate_text_result.add_usage total_usage step_usage in
-        let has_tool_calls = List.length tool_calls > 0 in
+        let has_tool_calls =
+          match tool_calls with
+          | [] -> false
+          | _ :: _ -> true
+        in
         let should_continue =
           has_tool_calls
           && step_num < max_steps
           &&
           match tool_choice with
           | Some Ai_provider.Tool_choice.None_ -> false
-          | _ -> true
+          | Some Auto | Some Required | Some (Specific _) | None -> true
         in
         if should_continue then begin
           (* Execute tools *)
@@ -264,9 +235,7 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
           let step : Generate_text_result.step =
             { text; reasoning; tool_calls; tool_results; finish_reason = fr; usage = step_usage }
           in
-          (match on_step_finish with
-          | Some f -> f step
-          | None -> ());
+          Option.iter (fun f -> f step) on_step_finish;
           emit (Text_stream_part.Finish_step { finish_reason = fr; usage = step_usage });
           (* Build messages for next step *)
           let assistant_content =
@@ -297,9 +266,7 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
           let step : Generate_text_result.step =
             { text; reasoning; tool_calls; tool_results = []; finish_reason = fr; usage = step_usage }
           in
-          (match on_step_finish with
-          | Some f -> f step
-          | None -> ());
+          Option.iter (fun f -> f step) on_step_finish;
           emit (Text_stream_part.Finish_step { finish_reason = fr; usage = step_usage });
           emit (Text_stream_part.Finish { finish_reason = fr; usage = new_total });
           push_full None;
@@ -310,24 +277,12 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
           (* Call on_finish if provided *)
           (match on_finish with
           | Some f ->
-            let all_text =
-              all_steps
-              |> List.map (fun (s : Generate_text_result.step) -> s.text)
-              |> List.filter (fun s -> String.length s > 0)
-              |> String.concat "\n"
-            in
-            let all_reasoning =
-              all_steps
-              |> List.map (fun (s : Generate_text_result.step) -> s.reasoning)
-              |> List.filter (fun s -> String.length s > 0)
-              |> String.concat "\n"
-            in
             let all_tool_calls = List.concat_map (fun (s : Generate_text_result.step) -> s.tool_calls) all_steps in
             let all_tool_results = List.concat_map (fun (s : Generate_text_result.step) -> s.tool_results) all_steps in
             f
               {
-                Generate_text_result.text = all_text;
-                reasoning = all_reasoning;
+                Generate_text_result.text = Generate_text_result.join_text all_steps;
+                reasoning = Generate_text_result.join_reasoning all_steps;
                 tool_calls = all_tool_calls;
                 tool_results = all_tool_results;
                 steps = all_steps;
