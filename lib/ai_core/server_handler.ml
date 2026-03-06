@@ -1,20 +1,38 @@
+let po = Ai_provider.Provider_options.empty
+
+(* Extract text from a message — handles both v5 "content" string
+   and v6 "parts" array formats from useChat *)
+let extract_text_from_message msg =
+  let open Yojson.Safe.Util in
+  (* Try v6 "parts" array first *)
+  match member "parts" msg with
+  | `List parts ->
+    parts
+    |> List.filter_map (fun part ->
+      match member "type" part |> to_string_option with
+      | Some "text" ->
+        (match member "text" part |> to_string_option with
+        | Some t -> Some t
+        | None -> None)
+      | _ -> None)
+    |> String.concat ""
+  | _ ->
+  (* Fall back to v5 "content" string *)
+  match member "content" msg |> to_string_option with
+  | Some s -> s
+  | None -> ""
+
 let parse_messages_from_body body_json =
   let open Yojson.Safe.Util in
   let messages_json = member "messages" body_json |> to_list in
   List.filter_map
     (fun msg ->
       let role = member "role" msg |> to_string in
-      let content = member "content" msg |> to_string in
+      let text = extract_text_from_message msg in
       match role with
-      | "system" -> Some (Ai_provider.Prompt.System { content })
-      | "user" ->
-        Some
-          (Ai_provider.Prompt.User
-             { content = [ Text { text = content; provider_options = Ai_provider.Provider_options.empty } ] })
-      | "assistant" ->
-        Some
-          (Ai_provider.Prompt.Assistant
-             { content = [ Text { text = content; provider_options = Ai_provider.Provider_options.empty } ] })
+      | "system" -> Some (Ai_provider.Prompt.System { content = text })
+      | "user" -> Some (Ai_provider.Prompt.User { content = [ Text { text; provider_options = po } ] })
+      | "assistant" -> Some (Ai_provider.Prompt.Assistant { content = [ Text { text; provider_options = po } ] })
       | _ -> None)
     messages_json
 
