@@ -35,7 +35,7 @@ const port = 28600;
 console.log(`Frontend: http://localhost:${port}`);
 console.log(`Expects OCaml chat server at: http://localhost:28601/chat`);
 console.log(
-  `Start it with: ANTHROPIC_API_KEY=... dune exec examples/chat_server.exe`
+  `Start it with: ANTHROPIC_API_KEY=... dune exec examples/chat_server/main.exe`
 );
 
 serve({ fetch: app.fetch, port });
