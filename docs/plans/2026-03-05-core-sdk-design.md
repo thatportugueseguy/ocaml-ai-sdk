@@ -733,3 +733,52 @@ OCaml dependency, just a test tool).
 (`txt_1`, `txt_2`, etc.) — deterministic and testable.
 
 5. **Smooth streaming:** defer to v2.
+
+---
+
+## 14. v2 Roadmap
+
+Features deferred from v1, in priority order:
+
+### High Priority
+
+1. **Output API (structured output / schema validation)** — `Output.text()`,
+   `Output.object(schema)`, `Output.array(schema)`. Requires JSON Schema
+   validation on the response. The `Mode.Object_json` already gets the model
+   to produce JSON; this adds parsing + validation + type inference.
+
+2. **Tool approval workflow** — `tool-approval-request` / `tool-output-denied`
+   chunk types are already defined. Need `needs_approval` field on `Core_tool.t`
+   and a callback mechanism for the server handler to pause and wait for
+   approval from the frontend.
+
+3. **Cross-language interop test suite** — Node.js script using
+   `readUIMessageStream` from `ai@6` to consume our SSE output and verify
+   it parses correctly. Automated CI test.
+
+### Medium Priority
+
+4. **`smoothStream` text buffering** — Buffer text deltas and emit them
+   word-by-word for smoother UI rendering. Configurable delay and chunk size.
+
+5. **Telemetry / observability** — OpenTelemetry spans for generate/stream
+   calls, tool executions, and step boundaries. Integration with `trace` library.
+
+6. **`stopWhen` predicate for step loop** — Currently we only have `max_steps`.
+   Add a `?stop_when:(Generate_text_result.step -> bool)` parameter for
+   dynamic termination (matching TypeScript SDK's `stopWhen`).
+
+7. **Retry logic with backoff** — Automatic retry on retryable errors
+   (`Rate_limit_error`, `Overloaded_error`) with exponential backoff.
+
+### Low Priority
+
+8. **Image / Embedding / Transcription / Speech models** — Additional model
+   type signatures in `ai_provider` and provider implementations.
+
+9. **`convertToModelMessages` / `toResponseMessages`** — Full bidirectional
+   message conversion between frontend UIMessage format and provider format,
+   including tool invocation state reconstruction.
+
+10. **Provider middleware** — Beyond basic `Middleware.apply`. Caching middleware,
+    cost tracking middleware, rate limiting middleware as reusable modules.
