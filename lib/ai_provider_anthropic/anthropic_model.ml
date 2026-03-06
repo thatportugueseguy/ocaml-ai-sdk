@@ -38,12 +38,30 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
   let system, remaining = Convert_prompt.extract_system opts.prompt in
   let messages = Convert_prompt.convert_messages remaining in
   let tools, tool_choice = Convert_tools.convert_tools ~tools:opts.tools ~tool_choice:opts.tool_choice in
+  (* Use model-aware default for max_tokens *)
+  let max_tokens =
+    match opts.max_output_tokens with
+    | Some _ -> opts.max_output_tokens
+    | None ->
+      let known = Model_catalog.of_model_id model in
+      Some (Model_catalog.default_max_tokens known)
+  in
+  let thinking_enabled =
+    match anthropic_opts.thinking with
+    | Some t when t.Thinking.enabled -> true
+    | Some _ | None -> false
+  in
   let body =
-    Anthropic_api.make_request_body ~model ~messages ?system ~tools ?tool_choice ?max_tokens:opts.max_output_tokens
+    Anthropic_api.make_request_body ~model ~messages ?system ~tools ?tool_choice ?max_tokens
       ?temperature:opts.temperature ?top_p:opts.top_p ?top_k:opts.top_k ~stop_sequences:opts.stop_sequences
       ?thinking:anthropic_opts.thinking ~stream ()
   in
-  body, warnings, opts.headers
+  (* Compute beta headers *)
+  let required_betas =
+    Beta_headers.required_betas ~thinking:thinking_enabled ~has_pdf:false ~tool_streaming:anthropic_opts.tool_streaming
+  in
+  let extra_headers = Beta_headers.merge_beta_headers ~user_headers:opts.headers ~required:required_betas in
+  body, warnings, extra_headers
 
 let create ~config ~model =
   let module M = struct
