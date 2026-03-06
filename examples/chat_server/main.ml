@@ -4,17 +4,12 @@
     Set ANTHROPIC_API_KEY environment variable before running.
 
     Usage:
-      dune exec examples/chat_server.exe
+      dune exec examples/chat_server/main.exe
 
     Test with curl:
-      curl -X POST http://localhost:28601/chat \
+      curl -X POST http://localhost:8080/chat \
         -H "Content-Type: application/json" \
-        -d '{"messages":[{"role":"user","content":"Hello!"}]}'
-
-    Or connect a React frontend using useChat():
-      const { messages, input, handleSubmit } = useChat({
-        api: 'http://localhost:28601/chat',
-      }); *)
+        -d '{"messages":[{"role":"user","content":"Hello!"}]}' *)
 
 let model = Ai_provider_anthropic.model "claude-sonnet-4-6"
 
@@ -30,64 +25,48 @@ let weather_tool : Ai_core.Core_tool.t =
         ];
     execute =
       (fun args ->
-        let city = try Yojson.Safe.Util.(member "city" args |> to_string) with _ -> "unknown" in
+        let city =
+          try Yojson.Safe.Util.(member "city" args |> to_string) with Yojson.Safe.Util.Type_error _ -> "unknown"
+        in
         Lwt.return
           (`Assoc
              [ "city", `String city; "temperature", `Int 22; "condition", `String "sunny"; "unit", `String "celsius" ]));
   }
 
-let cors_headers =
-  [
-    "access-control-allow-origin", "*";
-    "access-control-allow-methods", "POST, OPTIONS";
-    "access-control-allow-headers", "content-type";
-    "access-control-expose-headers", "x-vercel-ai-ui-message-stream";
-  ]
-
-let error_response status_code msg =
-  let body = Cohttp_lwt.Body.of_string msg in
-  let headers = Cohttp.Header.of_list (("content-type", "text/plain") :: cors_headers) in
-  let response = Cohttp.Response.make ~status:(Cohttp.Code.status_of_code status_code) ~headers () in
-  Lwt.return (response, body)
-
-let handler _conn req body =
+let handler conn req body =
   let uri = Cohttp.Request.uri req in
   let path = Uri.path uri in
   let meth = Cohttp.Request.meth req in
-  Printf.printf "[%s] %s %s\n%!"
+  Printf.printf "[%s] %s\n%!"
     (match meth with
     | `GET -> "GET"
     | `POST -> "POST"
     | `OPTIONS -> "OPTIONS"
     | _ -> "OTHER")
-    path (Uri.to_string uri);
-  (* Handle CORS preflight *)
+    path;
   match meth, path with
-  | `OPTIONS, "/chat" ->
-    let headers = Cohttp.Header.of_list cors_headers in
-    let response = Cohttp.Response.make ~status:`No_content ~headers () in
-    Lwt.return (response, Cohttp_lwt.Body.empty)
+  | `OPTIONS, "/chat" -> Ai_core.Server_handler.handle_cors_preflight conn req body
   | _, "/chat" ->
     Lwt.catch
       (fun () ->
-        let%lwt response, body =
-          Ai_core.Server_handler.handle_chat ~model ~system:"You are a helpful assistant. Be concise."
-            ~tools:[ "get_weather", weather_tool ]
-            ~max_steps:3 ~send_reasoning:true _conn req body
-        in
-        (* Add CORS headers to the SSE response *)
-        let existing_headers = Cohttp.Response.headers response in
-        let merged = List.fold_left (fun h (k, v) -> Cohttp.Header.add h k v) existing_headers cors_headers in
-        let response = { response with headers = merged } in
-        Lwt.return (response, body))
+        Ai_core.Server_handler.handle_chat ~model ~system:"You are a helpful assistant. Be concise."
+          ~tools:[ "get_weather", weather_tool ]
+          ~max_steps:3 ~send_reasoning:true conn req body)
       (fun exn ->
         let msg = Printexc.to_string exn in
         Printf.eprintf "[ERROR] /chat: %s\n%!" msg;
-        error_response 500 msg)
-  | _ -> error_response 404 "Not found"
+        let body = Cohttp_lwt.Body.of_string msg in
+        let headers = Cohttp.Header.of_list (("content-type", "text/plain") :: Ai_core.Server_handler.cors_headers) in
+        let response = Cohttp.Response.make ~status:`Internal_server_error ~headers () in
+        Lwt.return (response, body))
+  | _ ->
+    let body = Cohttp_lwt.Body.of_string "Not found" in
+    let headers = Cohttp.Header.of_list [ "content-type", "text/plain" ] in
+    let response = Cohttp.Response.make ~status:`Not_found ~headers () in
+    Lwt.return (response, body)
 
 let () =
-  let port = 28601 in
+  let port = 8080 in
   Printf.printf "Starting chat server on http://localhost:%d/chat\n%!" port;
   let server =
     Cohttp_lwt_unix.Server.create ~mode:(`TCP (`Port port)) (Cohttp_lwt_unix.Server.make ~callback:handler ())
