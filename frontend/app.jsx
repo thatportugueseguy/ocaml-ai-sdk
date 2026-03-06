@@ -49,24 +49,51 @@ export default function Chat() {
             <div style={{ whiteSpace: "pre-wrap", marginTop: 4 }}>
               {m.parts.map((part, i) => {
                 if (part.type === "text") return <span key={i}>{part.text}</span>;
-                if (part.type === "tool-invocation")
+                // v6: dynamic tools (server-side only) have type "dynamic-tool"
+                // v6: static tools (client-defined) have type "tool-{name}"
+                if (part.type === "dynamic-tool" || part.type.startsWith("tool-")) {
+                  const isResult = part.state === "output-available";
+                  const isError = part.state === "error";
                   return (
                     <div
                       key={i}
                       style={{
-                        background: "#f5f5f5",
+                        background: isError ? "#fee" : "#f5f5f5",
                         padding: 8,
                         borderRadius: 4,
                         fontSize: 13,
                         marginTop: 4,
+                        fontFamily: "monospace",
                       }}
                     >
-                      Tool: {part.toolInvocation.toolName}
-                      {part.toolInvocation.state === "result" && (
-                        <span> = {JSON.stringify(part.toolInvocation.result)}</span>
+                      <div>
+                        <strong>{part.toolName || part.type.replace("tool-", "")}</strong>
+                        {" "}
+                        <span style={{ color: "#888" }}>({part.state})</span>
+                      </div>
+                      {part.input != null && (
+                        <div style={{ marginTop: 4, color: "#555" }}>
+                          Input: {JSON.stringify(part.input)}
+                        </div>
+                      )}
+                      {isResult && part.output != null && (
+                        <div style={{ marginTop: 4, color: "#2e7d32" }}>
+                          Output: {JSON.stringify(part.output)}
+                        </div>
+                      )}
+                      {isError && part.errorText && (
+                        <div style={{ marginTop: 4, color: "#c62828" }}>
+                          Error: {part.errorText}
+                        </div>
                       )}
                     </div>
                   );
+                }
+                if (part.type === "step-start") return null;
+                // Log unknown part types for debugging
+                if (part.type !== "text") {
+                  console.log("Unknown part type:", part.type, part);
+                }
                 return null;
               })}
             </div>
