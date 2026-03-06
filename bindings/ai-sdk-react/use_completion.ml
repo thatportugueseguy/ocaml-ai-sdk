@@ -1,6 +1,4 @@
-(** Melange bindings for the [useCompletion] hook from [@ai-sdk/react].
-
-    @see <https://ai-sdk.dev/docs/ai-sdk-ui/completion> useCompletion documentation *)
+open Types
 
 (** {1 Return type} *)
 
@@ -13,7 +11,7 @@ external error : t -> Js.Exn.t option = "error" [@@mel.get] [@@mel.return nullab
 
 external complete : t -> string -> unit = "complete" [@@mel.send]
 
-external complete_with_options : t -> string -> Types.chat_request_options -> unit = "complete" [@@mel.send]
+external complete_with_options : t -> string -> chat_request_options -> unit = "complete" [@@mel.send]
 
 external stop : t -> unit = "stop" [@@mel.send]
 external set_completion : t -> string -> unit = "setCompletion" [@@mel.send]
@@ -23,12 +21,10 @@ external handle_submit : t -> unit = "handleSubmit" [@@mel.send]
 
 external handle_submit_with_event : t -> Dom.event -> unit = "handleSubmit" [@@mel.send]
 
-(** {1 Options} *)
+(** {1 Options & Hook} *)
 
 type options
 
-(** Create options for [useCompletion]. All parameters are optional.
-    [streamProtocol] should be ["data"] or ["text"]. *)
 external make_options :
   ?api:string ->
   ?id:string ->
@@ -45,13 +41,12 @@ external make_options :
   options = ""
 [@@mel.obj]
 
-(** {1 Hook} *)
+external use_completion_raw : options option -> t = "useCompletion" [@@mel.module "@ai-sdk/react"]
 
-external use_completion_raw : options Js.undefined -> t = "useCompletion" [@@mel.module "@ai-sdk/react"]
-
-(** Call [useCompletion()] with default options. *)
-let use_completion () = use_completion_raw Js.Undefined.empty
-
-(** Call [useCompletion(options)] with custom options
-    (created via {!make_options}). *)
-let use_completion_with options = use_completion_raw (Js.Undefined.return options)
+let use_completion ?api ?id ?initial_input ?initial_completion ?credentials ?headers ?body ?stream_protocol ?on_finish
+  ?on_error ?experimental_throttle () =
+  let opts =
+    make_options ?api ?id ?initialInput:initial_input ?initialCompletion:initial_completion ?credentials ?headers ?body
+      ?streamProtocol:stream_protocol ?onFinish:on_finish ?onError:on_error ?experimental_throttle ()
+  in
+  use_completion_raw (Some opts)

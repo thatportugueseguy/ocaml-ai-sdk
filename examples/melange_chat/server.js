@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
-import { readFileSync } from "fs";
+import { serveStatic } from "@hono/node-server/serve-static";
 
 const app = new Hono();
 
@@ -17,13 +17,7 @@ const html = `<!DOCTYPE html>
 </body>
 </html>`;
 
-app.get("/bundle.js", (c) => {
-  const js = readFileSync(
-    new URL("./dist/bundle.js", import.meta.url),
-    "utf-8"
-  );
-  return c.body(js, 200, { "content-type": "application/javascript" });
-});
+app.use("/bundle.js", serveStatic({ path: "./dist/bundle.js" }));
 
 app.get("/", (c) => {
   return c.html(html);

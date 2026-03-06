@@ -11,6 +11,8 @@
  (implementation
   (extension mlx)
   (merlin_reader mlx)
+  (format
+   (run ocamlformat-mlx %{input-file}))
   (preprocess
    (run mlx-pp %{input-file}))))
 

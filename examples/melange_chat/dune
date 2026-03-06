@@ -1,23 +1,13 @@
-(library
- (name melange_chat)
- (modes melange)
- (modules app)
- (libraries ai_sdk_react reason-react)
- (preprocess
-  (pps melange.ppx reason-react-ppx)))
-
 (melange.emit
  (target output)
  (alias melange_chat)
- (modules main)
- (libraries melange_chat reason-react)
+ (libraries ai_sdk_react reason-react)
  (preprocess
   (pps melange.ppx reason-react-ppx))
  (module_systems es6))
 
 ; Build the JS bundle: `dune build @bundle`
 ; Requires: npm install (run once in this directory)
-; This compiles OCaml -> JS via melange, then bundles with esbuild.
 (rule
  (alias bundle)
  (deps

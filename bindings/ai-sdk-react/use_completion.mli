@@ -1,16 +1,4 @@
-(** Melange bindings for the [useCompletion] hook from [@ai-sdk/react].
-
-    The [useCompletion] hook manages text completion with streaming support,
-    input state, and form helpers.
-
-    {[
-      let () =
-        let h = Use_completion.use_completion () in
-        Js.log (Use_completion.completion h);
-        Use_completion.complete h "Write a poem about OCaml"
-    ]}
-
-    @see <https://ai-sdk.dev/docs/ai-sdk-ui/completion> useCompletion documentation *)
+open Types
 
 (** The return value of the [useCompletion] hook. *)
 type t
@@ -24,55 +12,33 @@ val error : t -> Js.Exn.t option
 
 (** {1 Actions} *)
 
-(** Send a prompt to the completion API. *)
 val complete : t -> string -> unit
-
-(** Send a prompt with additional request options. *)
-val complete_with_options : t -> string -> Types.chat_request_options -> unit
-
-(** Abort the current request. *)
+val complete_with_options : t -> string -> chat_request_options -> unit
 val stop : t -> unit
-
-(** Update the completion text locally. *)
 val set_completion : t -> string -> unit
-
-(** Update the input value. *)
 val set_input : t -> string -> unit
-
-(** An input/textarea-ready onChange handler. *)
 val handle_input_change : t -> Dom.event -> unit
-
-(** Form submission handler (resets input and triggers completion). *)
 val handle_submit : t -> unit
-
-(** Form submission handler with an event object. *)
 val handle_submit_with_event : t -> Dom.event -> unit
 
-(** {1 Options} *)
+(** {1 Hook}
 
-type options
+    {[
+      let h = Use_completion.use_completion ~api:"/api/completion" () in
+      Use_completion.complete h "Write a poem"
+    ]} *)
 
-(** Create options for [useCompletion]. All parameters are optional.
-    [streamProtocol] should be ["data"] or ["text"]. *)
-val make_options :
+val use_completion :
   ?api:string ->
   ?id:string ->
-  ?initialInput:string ->
-  ?initialCompletion:string ->
+  ?initial_input:string ->
+  ?initial_completion:string ->
   ?credentials:string ->
   ?headers:string Js.Dict.t ->
   ?body:Js.Json.t ->
-  ?streamProtocol:string ->
-  ?onFinish:(string -> string -> unit) ->
-  ?onError:(Js.Exn.t -> unit) ->
+  ?stream_protocol:string ->
+  ?on_finish:(string -> string -> unit) ->
+  ?on_error:(Js.Exn.t -> unit) ->
   ?experimental_throttle:int ->
   unit ->
-  options
-
-(** {1 Hook} *)
-
-(** Call [useCompletion()] with default options. *)
-val use_completion : unit -> t
-
-(** Call [useCompletion(options)] with custom options. *)
-val use_completion_with : options -> t
+  t

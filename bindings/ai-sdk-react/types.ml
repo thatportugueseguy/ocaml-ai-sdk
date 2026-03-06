@@ -1,21 +1,17 @@
-(** Shared types for @ai-sdk/react bindings *)
-
 (** {1 Chat Status} *)
 
 type chat_status =
-  [ `submitted
-  | `streaming
-  | `ready
-  | `error
-  ]
+  | Submitted
+  | Streaming
+  | Ready
+  | Error
 
 (** {1 Message Role} *)
 
 type role =
-  [ `system
-  | `user
-  | `assistant
-  ]
+  | System
+  | User
+  | Assistant
 
 (** {1 UI Message Parts} *)
 
@@ -76,8 +72,6 @@ external file_ui_part_filename : file_ui_part -> string option = "filename" [@@m
 
 type step_start_ui_part
 
-(** A single part of a UI message. Use {!part_type} to determine the variant,
-    then cast with the appropriate [as_*] function. *)
 type ui_message_part
 
 external part_type : ui_message_part -> string = "type" [@@mel.get]
@@ -90,37 +84,44 @@ external as_source_document : ui_message_part -> source_document_ui_part = "%ide
 external as_file : ui_message_part -> file_ui_part = "%identity"
 external as_step_start : ui_message_part -> step_start_ui_part = "%identity"
 
-(** Pattern match on a message part by its type string.
-    Tool parts match both ["dynamic-tool"] and ["tool-*"] prefixed types
-    (e.g. ["tool-get_weather"] for static tools). *)
+type classified_part =
+  | Text of text_ui_part
+  | Reasoning of reasoning_ui_part
+  | Tool_call of tool_ui_part
+  | Source_url of source_url_ui_part
+  | Source_document of source_document_ui_part
+  | File of file_ui_part
+  | Step_start of step_start_ui_part
+  | Unknown of string
+
 let classify (part : ui_message_part) =
   let t = part_type part in
-  if String.equal t "text" then `Text (as_text part)
-  else if String.equal t "reasoning" then `Reasoning (as_reasoning part)
-  else if String.equal t "dynamic-tool" then `Tool_call (as_tool_call part)
-  else if String.length t > 5 && String.equal (String.sub t 0 5) "tool-" then `Tool_call (as_tool_call part)
-  else if String.equal t "source-url" then `Source_url (as_source_url part)
-  else if String.equal t "source-document" then `Source_document (as_source_document part)
-  else if String.equal t "file" then `File (as_file part)
-  else if String.equal t "step-start" then `Step_start (as_step_start part)
-  else `Unknown t
+  if String.equal t "text" then Text (as_text part)
+  else if String.equal t "reasoning" then Reasoning (as_reasoning part)
+  else if String.equal t "dynamic-tool" then Tool_call (as_tool_call part)
+  else if String.length t > 5 && String.equal (String.sub t 0 5) "tool-" then Tool_call (as_tool_call part)
+  else if String.equal t "source-url" then Source_url (as_source_url part)
+  else if String.equal t "source-document" then Source_document (as_source_document part)
+  else if String.equal t "file" then File (as_file part)
+  else if String.equal t "step-start" then Step_start (as_step_start part)
+  else Unknown t
 
 (** {1 UI Message} *)
 
 type ui_message
 
 external ui_message_id : ui_message -> string = "id" [@@mel.get]
-external ui_message_role : ui_message -> string = "role" [@@mel.get]
+external ui_message_role_raw : ui_message -> string = "role" [@@mel.get]
 external ui_message_parts : ui_message -> ui_message_part array = "parts" [@@mel.get]
 
 external ui_message_metadata : ui_message -> Js.Json.t option = "metadata" [@@mel.get] [@@mel.return nullable]
 
-let ui_message_role_typed (msg : ui_message) : role =
-  match ui_message_role msg with
-  | "system" -> `system
-  | "user" -> `user
-  | "assistant" -> `assistant
-  | _ -> `user
+let ui_message_role (msg : ui_message) : role =
+  match ui_message_role_raw msg with
+  | "system" -> System
+  | "user" -> User
+  | "assistant" -> Assistant
+  | _ -> User
 
 (** {1 Chat Request Options} *)
 
@@ -130,6 +131,6 @@ external make_chat_request_options :
   ?headers:string Js.Dict.t -> ?body:Js.Json.t -> ?metadata:Js.Json.t -> unit -> chat_request_options = ""
 [@@mel.obj]
 
-(** {1 Error helpers} *)
+(** {1 Error} *)
 
 type error = Js.Exn.t
