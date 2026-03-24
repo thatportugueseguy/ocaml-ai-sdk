@@ -1,9 +1,16 @@
+type cc = Cache_control.t
+
+let cc_to_yojson (cc : cc) =
+  match cc.Cache_control.cache_type with
+  | Ephemeral -> `Assoc [ "type", `String "ephemeral" ]
+
 type anthropic_tool = {
   name : string;
-  description : string option;
+  description : string option; [@yojson.option]
   input_schema : Yojson.Safe.t;
-  cache_control : Cache_control.t option;
+  cache_control : cc option; [@yojson.option]
 }
+[@@deriving to_yojson]
 
 type anthropic_tool_choice =
   | Tc_auto
@@ -20,19 +27,6 @@ let convert_tools ~tools ~tool_choice =
   | Some Ai_provider.Tool_choice.Required -> List.map convert_single_tool tools, Some Tc_any
   | Some (Ai_provider.Tool_choice.Specific { tool_name }) ->
     List.map convert_single_tool tools, Some (Tc_tool { name = tool_name })
-
-let anthropic_tool_to_yojson tool =
-  let fields =
-    List.concat
-      [
-        [ "name", `String tool.name; "input_schema", tool.input_schema ];
-        (match tool.description with
-        | Some d -> [ "description", `String d ]
-        | None -> []);
-        Cache_control.to_yojson_fields tool.cache_control;
-      ]
-  in
-  `Assoc fields
 
 let anthropic_tool_choice_to_yojson = function
   | Tc_auto -> `Assoc [ "type", `String "auto" ]
