@@ -157,53 +157,98 @@ let convert_messages messages =
   let role_content_pairs = List.filter_map convert_single_message messages in
   group_messages role_content_pairs
 
-(* JSON serialization *)
+(* JSON serialization — typed records for each content shape *)
 
-let cache_control_to_yojson = Cache_control.to_yojson_fields
+type cc = Cache_control.t
+
+let cc_to_yojson (cc : cc) =
+  match cc.Cache_control.cache_type with
+  | Ephemeral -> `Assoc [ "type", `String "ephemeral" ]
+
+type image_source_base64_json = {
+  type_ : string; [@key "type"]
+  media_type : string;
+  data : string;
+}
+[@@deriving to_yojson]
+
+type image_source_url_json = {
+  type_ : string; [@key "type"]
+  url : string;
+}
+[@@deriving to_yojson]
 
 let image_source_to_yojson = function
   | Base64_image { media_type; data } ->
-    `Assoc [ "type", `String "base64"; "media_type", `String media_type; "data", `String data ]
-  | Url_image { url } -> `Assoc [ "type", `String "url"; "url", `String url ]
+    image_source_base64_json_to_yojson { type_ = "base64"; media_type; data }
+  | Url_image { url } -> image_source_url_json_to_yojson { type_ = "url"; url }
+
+type text_content_json = {
+  type_ : string; [@key "type"]
+  text : string;
+  cache_control : cc option; [@yojson.option]
+}
+[@@deriving to_yojson]
+
+type source_content_json = {
+  type_ : string; [@key "type"]
+  source : Yojson.Safe.t;
+  cache_control : cc option; [@yojson.option]
+}
+[@@deriving to_yojson]
+
+type tool_use_json = {
+  type_ : string; [@key "type"]
+  id : string;
+  name : string;
+  input : Yojson.Safe.t;
+}
+[@@deriving to_yojson]
+
+type tool_result_json = {
+  type_ : string; [@key "type"]
+  tool_use_id : string;
+  content : Yojson.Safe.t list;
+  is_error : bool;
+}
+[@@deriving to_yojson]
+
+type thinking_json = {
+  type_ : string; [@key "type"]
+  thinking : string;
+  signature : string;
+}
+[@@deriving to_yojson]
+
+let tool_result_content_to_yojson = function
+  | Tool_text s -> text_content_json_to_yojson { type_ = "text"; text = s; cache_control = None }
+  | Tool_image { source } ->
+    source_content_json_to_yojson { type_ = "image"; source = image_source_to_yojson source; cache_control = None }
 
 let anthropic_content_to_yojson = function
-  | A_text { text; cache_control } ->
-    `Assoc ([ "type", `String "text"; "text", `String text ] @ cache_control_to_yojson cache_control)
+  | A_text { text; cache_control } -> text_content_json_to_yojson { type_ = "text"; text; cache_control }
   | A_image { source; cache_control } ->
-    `Assoc ([ "type", `String "image"; "source", image_source_to_yojson source ] @ cache_control_to_yojson cache_control)
+    source_content_json_to_yojson { type_ = "image"; source = image_source_to_yojson source; cache_control }
   | A_document { source; cache_control } ->
     let (Base64_document { media_type; data }) = source in
-    `Assoc
-      ([
-         "type", `String "document";
-         "source", `Assoc [ "type", `String "base64"; "media_type", `String media_type; "data", `String data ];
-       ]
-      @ cache_control_to_yojson cache_control)
-  | A_tool_use { id; name; input } ->
-    `Assoc [ "type", `String "tool_use"; "id", `String id; "name", `String name; "input", input ]
+    let source_json = image_source_base64_json_to_yojson { type_ = "base64"; media_type; data } in
+    source_content_json_to_yojson { type_ = "document"; source = source_json; cache_control }
+  | A_tool_use { id; name; input } -> tool_use_json_to_yojson { type_ = "tool_use"; id; name; input }
   | A_tool_result { tool_use_id; content; is_error } ->
-    let content_json =
-      List.map
-        (fun c ->
-          match c with
-          | Tool_text s -> `Assoc [ "type", `String "text"; "text", `String s ]
-          | Tool_image { source } -> `Assoc [ "type", `String "image"; "source", image_source_to_yojson source ])
-        content
-    in
-    `Assoc
-      [
-        "type", `String "tool_result";
-        "tool_use_id", `String tool_use_id;
-        "content", `List content_json;
-        "is_error", `Bool is_error;
-      ]
-  | A_thinking { thinking; signature } ->
-    `Assoc [ "type", `String "thinking"; "thinking", `String thinking; "signature", `String signature ]
+    let content_json = List.map tool_result_content_to_yojson content in
+    tool_result_json_to_yojson { type_ = "tool_result"; tool_use_id; content = content_json; is_error }
+  | A_thinking { thinking; signature } -> thinking_json_to_yojson { type_ = "thinking"; thinking; signature }
 
-let anthropic_message_to_yojson { role; content } =
+type message_json = {
+  role : string;
+  content : Yojson.Safe.t list;
+}
+[@@deriving to_yojson]
+
+let anthropic_message_to_yojson ({ role; content } : anthropic_message) =
   let role_str =
     match role with
     | `User -> "user"
     | `Assistant -> "assistant"
   in
-  `Assoc [ "role", `String role_str; "content", `List (List.map anthropic_content_to_yojson content) ]
+  message_json_to_yojson { role = role_str; content = List.map anthropic_content_to_yojson content }
