@@ -12,9 +12,16 @@ val cors_headers : (string * string) list
 
     Expects a JSON body with a ["messages"] array of
     [{"role": "user"|"assistant"|"system", "content": "..."}] objects.
+    Supports both v5 ["content"] strings and v6 ["parts"] arrays.
 
     Returns an SSE response with UIMessage stream protocol v1 headers.
-    When [cors] is [true] (the default), CORS headers are included. *)
+    When [cors] is [true] (the default), CORS headers are included.
+    Returns [400 Bad Request] if the request body is not valid JSON.
+
+    Note: generation parameters like [temperature], [top_p], [max_output_tokens]
+    are not exposed here. Pass them via [provider_options] or call
+    {!Stream_text.stream_text} directly with {!Stream_text_result.to_ui_message_sse_stream}
+    and {!make_sse_response} for full control. *)
 val handle_chat :
   model:Ai_provider.Language_model.t ->
   ?tools:(string * Core_tool.t) list ->

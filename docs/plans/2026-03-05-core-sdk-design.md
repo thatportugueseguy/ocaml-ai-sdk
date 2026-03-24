@@ -97,13 +97,14 @@ The Core SDK wraps the provider's raw tool call/result into a managed loop:
 
 ## 3. UIMessage Stream Chunk Types
 
-From the Vercel AI SDK source (`ui-message-chunks.ts`), the complete set:
+From the Vercel AI SDK v6 source (`ui-message-chunks.ts`), the complete set:
 
 ### Message lifecycle
 ```ocaml
 | Start of { message_id : string option; message_metadata : Yojson.Safe.t option }
 | Finish of { finish_reason : Finish_reason.t option; message_metadata : Yojson.Safe.t option }
 | Abort of { reason : string option }
+| Message_metadata of { message_metadata : Yojson.Safe.t }
 ```
 
 ### Step boundaries
@@ -133,11 +134,14 @@ From the Vercel AI SDK source (`ui-message-chunks.ts`), the complete set:
 | Tool_input_available of { tool_call_id : string; tool_name : string; input : Yojson.Safe.t }
 | Tool_output_available of { tool_call_id : string; output : Yojson.Safe.t }
 | Tool_output_error of { tool_call_id : string; error_text : string }
+| Tool_input_error of { tool_call_id : string; tool_name : string; input : Yojson.Safe.t; error_text : string }
+| Tool_output_denied of { tool_call_id : string }
 ```
 
 ### Sources
 ```ocaml
 | Source_url of { source_id : string; url : string; title : string option }
+| Source_document of { source_id : string; media_type : string; title : string; filename : string option }
 ```
 
 ### Files
@@ -154,6 +158,10 @@ From the Vercel AI SDK source (`ui-message-chunks.ts`), the complete set:
 ```ocaml
 | Data of { data_type : string; id : string option; data : Yojson.Safe.t }
 ```
+
+**Note:** The `Data` type is serialized with type `"data-{data_type}"` in JSON.
+The v6 spec also supports a `transient` boolean on custom data chunks (not
+yet implemented — deferred to v2).
 
 ---
 
@@ -258,13 +266,13 @@ val to_ui_message_stream :
   t -> Ui_message_chunk.t Lwt_stream.t
 (** Convert to UIMessage stream protocol chunks for frontend consumption. *)
 
-val to_ui_message_stream_response :
+val to_ui_message_sse_stream :
   ?message_id:string ->
   ?send_reasoning:bool ->
-  ?status:int ->
-  ?headers:(string * string) list ->
-  t -> Cohttp_lwt_unix.Server.response_action Lwt.t
-(** Create an HTTP response streaming UIMessage SSE. *)
+  t -> string Lwt_stream.t
+(** Transform to SSE-encoded strings ready for HTTP response.
+    Includes the [DONE] sentinel. Combines to_ui_message_stream
+    with Ui_message_stream.stream_to_sse. *)
 ```
 
 ### 4.4 Text Stream Part (internal fullStream events)
@@ -474,6 +482,10 @@ type t =
   | Tool_output_error of { tool_call_id : string; error_text : string }
   | Source_url of { source_id : string; url : string; title : string option }
   | File of { url : string; media_type : string }
+  | Message_metadata of { message_metadata : Yojson.Safe.t }
+  | Tool_input_error of { tool_call_id : string; tool_name : string; input : Yojson.Safe.t; error_text : string }
+  | Tool_output_denied of { tool_call_id : string }
+  | Source_document of { source_id : string; media_type : string; title : string; filename : string option }
   | Error of { error_text : string }
   | Data of { data_type : string; id : string option; data : Yojson.Safe.t }
 ```
@@ -507,17 +519,21 @@ but snake_case in OCaml types. The `to_yojson` function handles this mapping.
 ### 7.3 SSE Encoding
 
 ```ocaml
-val chunk_to_sse : t -> string
+val chunk_to_sse : Ui_message_chunk.t -> string
 (** Encode a single chunk as an SSE data line: "data: {json}\n\n" *)
 
 val done_sse : string
 (** The terminal SSE message: "data: [DONE]\n\n" *)
+
+val stream_to_sse : Ui_message_chunk.t Lwt_stream.t -> string Lwt_stream.t
+(** Transform a chunk stream into an SSE string stream.
+    Appends the [DONE] sentinel when the input stream ends. *)
 ```
 
 ### 7.4 HTTP Response
 
 ```ocaml
-val ui_message_stream_headers : (string * string) list
+val headers : (string * string) list
 (** Required SSE headers for UIMessage stream protocol v1:
     content-type: text/event-stream
     cache-control: no-cache
@@ -536,7 +552,7 @@ the internal `Text_stream_part.t` stream into `Ui_message_chunk.t` stream:
 ```
 Text_stream_part.t              →  Ui_message_chunk.t
 ─────────────────────────────────────────────────────
-Start                           →  Start { message_id }
+Start                           →  (absorbed — Start emitted separately with message_id)
 Start_step                      →  Start_step
 Text_start { id }               →  Text_start { id }
 Text_delta { text; id }         →  Text_delta { id; delta = text }
@@ -544,14 +560,24 @@ Text_end { id }                 →  Text_end { id }
 Reasoning_start { id }          →  Reasoning_start { id }  (if send_reasoning)
 Reasoning_delta { text; id }    →  Reasoning_delta { id; delta = text }
 Reasoning_end { id }            →  Reasoning_end { id }
-Tool_call_delta { ... }         →  Tool_input_delta { ... }
-Tool_call { id; name; args }    →  Tool_input_available { id; name; input = args }
+Tool_call_delta { ... }         →  Tool_input_start (on first delta per tool_call_id)
+                                   + Tool_input_delta { ... }
+Tool_call { id; name; args }    →  Tool_input_start (if no prior deltas)
+                                   + Tool_input_available { id; name; input = args }
 Tool_result { id; result; ... } →  Tool_output_available { id; output = result }
-                                   OR Tool_output_error { id; error_text }
+                                   OR Tool_output_error { id; error_text } (if is_error)
+Source { source_id; url; ... }  →  Source_url { source_id; url; title }
+File { url; media_type }        →  File { url; media_type }
 Finish_step { ... }             →  Finish_step
 Finish { reason; usage }        →  Finish { finish_reason }
 Error { error }                 →  Error { error_text }
 ```
+
+**CRITICAL:** `Tool_input_start` must be emitted before any `Tool_input_delta`
+for a given tool call. The `to_ui_message_stream` function tracks which tool
+calls have started and emits `Tool_input_start` on the first delta or on
+`Tool_call` if no deltas preceded it. The v6 `processUIMessageStream` throws
+if it receives a `tool-input-delta` without a preceding `tool-input-start`.
 
 ---
 
@@ -560,7 +586,7 @@ Error { error }                 →  Error { error_text }
 ```
 lib/
   ai_core/
-    ai_core.ml              -- top-level re-exports
+    ai_core.ml              -- top-level re-exports (all modules below)
     core_tool.ml             -- tool definition type
     generate_text.ml         -- generate_text function
     generate_text_result.ml  -- result types (step, tool_call, etc.)
@@ -569,14 +595,73 @@ lib/
     text_stream_part.ml      -- internal stream event types
     ui_message_chunk.ml      -- UIMessage protocol chunk types + JSON
     ui_message_stream.ml     -- SSE encoding + HTTP response helpers
-    prompt_builder.ml        -- string prompt → Prompt.message list
+    prompt_builder.ml        -- prompt/messages builder + tool conversion
+    server_handler.ml        -- cohttp chat handler (handle_chat, CORS)
 ```
 
 ---
 
-## 10. Frontend Interop Verification
+## 10. Server Handler (`Server_handler`)
 
-### 10.1 What We Test
+A convenience module for building chat API endpoints with `cohttp-lwt-unix`.
+Parses the request body, calls `stream_text`, and returns an SSE response.
+
+### 10.1 API
+
+```ocaml
+val handle_chat :
+  model:Language_model.t ->
+  ?tools:(string * Core_tool.t) list ->
+  ?max_steps:int ->
+  ?system:string ->
+  ?send_reasoning:bool ->
+  ?cors:bool ->
+  ?provider_options:Provider_options.t ->
+  Cohttp_lwt_unix.Server.conn ->
+  Cohttp.Request.t ->
+  Cohttp_lwt.Body.t ->
+  (Cohttp.Response.t * Cohttp_lwt.Body.t) Lwt.t
+
+val handle_cors_preflight :
+  Cohttp_lwt_unix.Server.conn -> Cohttp.Request.t -> Cohttp_lwt.Body.t ->
+  (Cohttp.Response.t * Cohttp_lwt.Body.t) Lwt.t
+(** Returns 204 No Content with CORS headers. *)
+
+val make_sse_response :
+  ?status:Cohttp.Code.status_code ->
+  ?extra_headers:(string * string) list ->
+  string Lwt_stream.t ->
+  (Cohttp.Response.t * Cohttp_lwt.Body.t) Lwt.t
+(** Create an SSE HTTP response from a string stream. *)
+
+val cors_headers : (string * string) list
+(** Default CORS headers allowing all origins, POST/OPTIONS methods. *)
+```
+
+### 10.2 Request Body Parsing
+
+Supports both AI SDK v5 and v6 message formats from `useChat()`:
+
+- **v6 (parts):** `{"messages": [{"role": "user", "parts": [{"type": "text", "text": "..."}]}]}`
+- **v5 (content):** `{"messages": [{"role": "user", "content": "Hello"}]}`
+
+Text is extracted from `parts` first, falling back to `content` string.
+
+### 10.3 CORS
+
+When `cors` is `true` (default), the response includes:
+- `access-control-allow-origin: *`
+- `access-control-allow-methods: POST, OPTIONS`
+- `access-control-allow-headers: content-type`
+- `access-control-expose-headers: x-vercel-ai-ui-message-stream`
+
+Use `handle_cors_preflight` for the OPTIONS route.
+
+---
+
+## 11. Frontend Interop Verification
+
+### 11.1 What We Test
 
 We need to verify our SSE output is byte-compatible with what `useChat()`
 expects. The key requirements:
@@ -588,7 +673,7 @@ expects. The key requirements:
 5. **Type values**: exact strings (`text-start`, `text-delta`, `tool-input-start`)
 6. **Event ordering**: `start` → `start-step` → content blocks → `finish-step` → `finish`
 
-### 10.2 Test Strategy
+### 11.2 Test Strategy
 
 **Unit tests (OCaml):**
 - Serialize each `Ui_message_chunk.t` variant to JSON, verify field names
@@ -612,7 +697,7 @@ for await (const message of readUIMessageStream({ stream: response.body })) {
 }
 ```
 
-### 10.3 Snapshot Tests
+### 11.3 Snapshot Tests
 
 Capture known-good SSE output as test fixtures:
 ```
@@ -639,29 +724,49 @@ Compare our output against these fixtures byte-for-byte.
 
 ---
 
-## 11. Conversation Management
+## 12. Conversation Management
 
-### 11.1 Message Conversion
+### 12.1 Message Conversion (`Prompt_builder`)
 
-The Core SDK needs helpers to convert between user-facing messages and
-the provider-layer `Prompt.message` type:
+The Core SDK provides helpers to build provider-layer `Prompt.message` lists
+from user-friendly inputs:
 
 ```ocaml
 val messages_of_prompt :
-  ?system:string ->
-  prompt:string ->
-  Prompt.message list
+  ?system:string -> prompt:string -> unit -> Prompt.message list
 (** Convert a simple string prompt (+ optional system) to messages. *)
 
-val append_tool_results :
+val messages_of_string_messages :
+  ?system:string -> messages:(string * string) list -> unit -> Prompt.message list
+(** Convert (role, content) pairs to provider messages.
+    Roles: "system", "user", "assistant". *)
+
+val resolve_messages :
+  ?system:string -> ?prompt:string -> ?messages:Prompt.message list ->
+  unit -> Prompt.message list
+(** Build the initial message list from either [prompt] (string) or [messages].
+    Prepends system message if provided. Raises if both or neither are given. *)
+
+val append_assistant_and_tool_results :
   messages:Prompt.message list ->
   assistant_content:Content.t list ->
   tool_results:Generate_text_result.tool_result list ->
   Prompt.message list
 (** Append an assistant message and tool results for the next loop iteration. *)
+
+val make_call_options :
+  messages:Prompt.message list -> tools:Tool.t list ->
+  ?tool_choice:Tool_choice.t -> ?max_output_tokens:int -> ?temperature:float ->
+  ?top_p:float -> ?top_k:int -> ?stop_sequences:string list -> ?seed:int ->
+  ?provider_options:Provider_options.t -> ?headers:(string * string) list ->
+  unit -> Call_options.t
+(** Build a Call_options.t with common defaults. *)
+
+val tools_to_provider : (string * Core_tool.t) list -> Tool.t list
+(** Convert Core SDK tools to provider-layer tool definitions. *)
 ```
 
-### 11.2 Multi-Turn Support
+### 12.2 Multi-Turn Support
 
 For now, multi-turn is the **caller's responsibility** — they maintain
 the message list and call `generate_text`/`stream_text` repeatedly.
@@ -672,7 +777,7 @@ SDK's approach where `generateText`/`streamText` are stateless functions.
 
 ---
 
-## 12. Dependencies
+## 13. Dependencies
 
 No new opam dependencies needed beyond what we already have:
 - `ai_provider` (our abstraction layer)
@@ -686,57 +791,21 @@ OCaml dependency, just a test tool).
 
 ---
 
-## 13. Open Questions
+## 14. Resolved Design Decisions
 
-1. **Should `stream_text` handle multi-step tool loops?** The TypeScript SDK
-   does — when the model returns tool calls during streaming, it executes
-   them and calls the model again, all within the same stream. This is
-   complex but essential for agents. Recommendation: yes, implement it.
-
-2. **Should we support the `Output` API (structured output)?** This adds
-   JSON schema validation on the response. Recommendation: defer to v2.
-   The `Mode.Object_json` already gets the model to produce JSON; validation
-   can be added later without breaking the API.
-
-3. **Should we build a cohttp server handler helper?** Something like:
-   ```ocaml
-   val handle_chat :
-     model:Language_model.t ->
-     ?tools:(string * Core_tool.t) list ->
-     Cohttp_lwt_unix.Server.conn ->
-     Cohttp.Request.t ->
-     Cohttp_lwt.Body.t ->
-     (Cohttp.Response.t * Cohttp_lwt.Body.t) Lwt.t
-   ```
-   This would parse the request body (messages JSON), call `stream_text`,
-   and return the SSE response. Very convenient for building chat APIs.
-   Recommendation: yes, include it.
-
-4. **ID generation for stream parts:** The UIMessage protocol requires
-   IDs like `"txt_1"`, `"rsn_1"` for content blocks. Should we use
-   incrementing counters or UUIDs? The TypeScript SDK uses `generateId()`
-   which defaults to `nanoid()`. Recommendation: simple counter per stream
-   (`txt_1`, `txt_2`, etc.) — deterministic and testable.
-
-5. **Smooth streaming:** The TypeScript SDK has `smoothStream()` that
-   buffers text for word-by-word delivery. Recommendation: defer to v2.
-   Not needed for correctness, only for UX polish.
-
-
-1. **Should `stream_text` handle multi-step tool loops?** yes, implement it.
-
-2. **Should we support the `Output` API (structured output)?** defer to v2.
-
-3. **Should we build a cohttp server handler helper?** yes, include it.
-
-4. **ID generation for stream parts:** simple counter per stream
-(`txt_1`, `txt_2`, etc.) — deterministic and testable.
-
-5. **Smooth streaming:** defer to v2.
+| Decision | Resolution | Status |
+|----------|-----------|--------|
+| Multi-step tool loops in `stream_text` | Yes — implemented with background `Lwt.async` step loop | Done |
+| Output API (structured output) | Deferred to v2 | v2 |
+| Cohttp server handler | Yes — `Server_handler.handle_chat` with CORS support | Done |
+| ID generation for stream parts | Simple counter per stream (`txt_1`, `rsn_1`, etc.) — deterministic and testable | Done |
+| Smooth streaming (`smoothStream`) | Deferred to v2 | v2 |
+| `send_reasoning` default | Defaults to `true` (matches Anthropic thinking visibility) | Done |
+| Request body parsing | Supports both v5 `content` string and v6 `parts` array in `server_handler` | Done |
 
 ---
 
-## 14. v2 Roadmap
+## 15. v2 Roadmap
 
 Features deferred from v1, in priority order:
 
@@ -754,7 +823,10 @@ Features deferred from v1, in priority order:
 
 3. **Cross-language interop test suite** — Node.js script using
    `readUIMessageStream` from `ai@6` to consume our SSE output and verify
-   it parses correctly. Automated CI test.
+   it parses correctly. Automated CI test. Also use as basis for
+   `handle_chat` end-to-end tests (v6 `parts` format parsing, error
+   responses, CORS headers) — derive test cases from the upstream AI SDK
+   test suite where possible.
 
 ### Medium Priority
 
@@ -773,12 +845,17 @@ Features deferred from v1, in priority order:
 
 ### Low Priority
 
-8. **Image / Embedding / Transcription / Speech models** — Additional model
+8. **`transient` field on custom `Data` chunks** — The v6 spec supports a
+   `transient: true` boolean on `data-*` chunks. Transient data is sent to
+   the client but not persisted in message history. Add `?transient:bool`
+   to the `Data` variant.
+
+9. **Image / Embedding / Transcription / Speech models** — Additional model
    type signatures in `ai_provider` and provider implementations.
 
-9. **`convertToModelMessages` / `toResponseMessages`** — Full bidirectional
-   message conversion between frontend UIMessage format and provider format,
-   including tool invocation state reconstruction.
+10. **`convertToModelMessages` / `toResponseMessages`** — Full bidirectional
+    message conversion between frontend UIMessage format and provider format,
+    including tool invocation state reconstruction.
 
-10. **Provider middleware** — Beyond basic `Middleware.apply`. Caching middleware,
+11. **Provider middleware** — Beyond basic `Middleware.apply`. Caching middleware,
     cost tracking middleware, rate limiting middleware as reusable modules.

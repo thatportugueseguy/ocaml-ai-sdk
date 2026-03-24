@@ -140,16 +140,14 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
   in
   (* Background streaming loop *)
   Lwt.async (fun () ->
-    let emit part =
+    let emit_event part =
       push_full (Some part);
-      match on_chunk with
-      | Some f -> f part
-      | None -> ()
+      Option.iter (fun f -> f part) on_chunk
     in
-    emit Text_stream_part.Start;
+    emit_event Text_stream_part.Start;
     let rec step_loop ~current_messages ~steps ~total_usage ~step_num =
       if step_num > max_steps then begin
-        emit
+        emit_event
           (Text_stream_part.Finish { finish_reason = Ai_provider.Finish_reason.Other "max_steps"; usage = total_usage });
         push_full None;
         Lwt.wakeup_later usage_resolver total_usage;
@@ -158,7 +156,7 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
         Lwt.return_unit
       end
       else begin
-        emit Text_stream_part.Start_step;
+        emit_event Text_stream_part.Start_step;
         let opts =
           Prompt_builder.make_call_options ~messages:current_messages ~tools:provider_tools ?tool_choice
             ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?provider_options ?headers ()
@@ -196,7 +194,7 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
                       is_error = true;
                     }
                   in
-                  emit
+                  emit_event
                     (Text_stream_part.Tool_result
                        { tool_call_id = tc.tool_call_id; tool_name = tc.tool_name; result = tr.result; is_error = true });
                   Lwt.return tr
@@ -212,7 +210,7 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
                           is_error = false;
                         }
                       in
-                      emit
+                      emit_event
                         (Text_stream_part.Tool_result
                            { tool_call_id = tc.tool_call_id; tool_name = tc.tool_name; result; is_error = false });
                       Lwt.return tr)
@@ -226,7 +224,7 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
                           is_error = true;
                         }
                       in
-                      emit
+                      emit_event
                         (Text_stream_part.Tool_result
                            { tool_call_id = tc.tool_call_id; tool_name = tc.tool_name; result = err; is_error = true });
                       Lwt.return tr))
@@ -236,7 +234,7 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
             { text; reasoning; tool_calls; tool_results; finish_reason = fr; usage = step_usage }
           in
           Option.iter (fun f -> f step) on_step_finish;
-          emit (Text_stream_part.Finish_step { finish_reason = fr; usage = step_usage });
+          emit_event (Text_stream_part.Finish_step { finish_reason = fr; usage = step_usage });
           (* Build messages for next step *)
           let assistant_content =
             let parts = ref [] in
@@ -267,8 +265,8 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
             { text; reasoning; tool_calls; tool_results = []; finish_reason = fr; usage = step_usage }
           in
           Option.iter (fun f -> f step) on_step_finish;
-          emit (Text_stream_part.Finish_step { finish_reason = fr; usage = step_usage });
-          emit (Text_stream_part.Finish { finish_reason = fr; usage = new_total });
+          emit_event (Text_stream_part.Finish_step { finish_reason = fr; usage = step_usage });
+          emit_event (Text_stream_part.Finish { finish_reason = fr; usage = new_total });
           push_full None;
           Lwt.wakeup_later usage_resolver new_total;
           Lwt.wakeup_later finish_resolver fr;

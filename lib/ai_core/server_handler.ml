@@ -61,7 +61,19 @@ let handle_cors_preflight _conn _req _body =
 
 let handle_chat ~model ?tools ?max_steps ?system ?send_reasoning ?(cors = true) ?provider_options _conn _req body =
   let%lwt body_str = Cohttp_lwt.Body.to_string body in
-  let body_json = try Yojson.Safe.from_string body_str with Yojson.Json_error _ -> `Assoc [ "messages", `List [] ] in
+  let body_json =
+    try Ok (Yojson.Safe.from_string body_str)
+    with Yojson.Json_error msg ->
+      Printf.eprintf "[ai_core] handle_chat: invalid JSON in request body: %s\n%!" msg;
+      Error msg
+  in
+  match body_json with
+  | Error msg ->
+    let status = `Bad_request in
+    let headers = (if cors then cors_headers else []) |> Cohttp.Header.of_list in
+    let body = Cohttp_lwt.Body.of_string (Printf.sprintf {|{"error":"Invalid JSON: %s"}|} msg) in
+    Lwt.return (Cohttp.Response.make ~status ~headers (), body)
+  | Ok body_json ->
   let messages = parse_messages_from_body body_json in
   let messages =
     match system with

@@ -91,6 +91,10 @@ let test_sse_output () =
   let last = List.nth sse_lines (List.length sse_lines - 1) in
   Alcotest.(check string) "ends with DONE" "data: [DONE]\n\n" last
 
+let is_reasoning_chunk = function
+  | Ai_core.Ui_message_chunk.Reasoning_start _ | Reasoning_delta _ | Reasoning_end _ -> true
+  | _ -> false
+
 let test_reasoning_filtered () =
   let model = make_reasoning_stream_model () in
   (* With reasoning disabled *)
@@ -98,14 +102,8 @@ let test_reasoning_filtered () =
   let ui_chunks =
     Lwt_main.run (Lwt_stream.to_list (Ai_core.Stream_text_result.to_ui_message_stream ~send_reasoning:false result))
   in
-  let has_reasoning =
-    List.exists
-      (function
-        | Ai_core.Ui_message_chunk.Reasoning_delta _ -> true
-        | _ -> false)
-      ui_chunks
-  in
-  Alcotest.(check bool) "no reasoning when disabled" false has_reasoning;
+  let reasoning_chunks = List.filter is_reasoning_chunk ui_chunks in
+  Alcotest.(check int) "no reasoning chunks when disabled" 0 (List.length reasoning_chunks);
   (* Text should still be present *)
   let has_text =
     List.exists
@@ -121,14 +119,21 @@ let test_reasoning_included () =
   (* With reasoning enabled (default) *)
   let result = Ai_core.Stream_text.stream_text ~model ~prompt:"Test" () in
   let ui_chunks = Lwt_main.run (Lwt_stream.to_list (Ai_core.Stream_text_result.to_ui_message_stream result)) in
-  let has_reasoning =
-    List.exists
-      (function
-        | Ai_core.Ui_message_chunk.Reasoning_delta _ -> true
-        | _ -> false)
-      ui_chunks
+  let reasoning_chunks = List.filter is_reasoning_chunk ui_chunks in
+  (* Should have Reasoning_start + Reasoning_delta + Reasoning_end *)
+  Alcotest.(check bool) "reasoning chunks present when enabled" true (List.length reasoning_chunks >= 3);
+  let has_start =
+    List.exists (function Ai_core.Ui_message_chunk.Reasoning_start _ -> true | _ -> false) ui_chunks
   in
-  Alcotest.(check bool) "reasoning present when enabled" true has_reasoning
+  let has_delta =
+    List.exists (function Ai_core.Ui_message_chunk.Reasoning_delta _ -> true | _ -> false) ui_chunks
+  in
+  let has_end =
+    List.exists (function Ai_core.Ui_message_chunk.Reasoning_end _ -> true | _ -> false) ui_chunks
+  in
+  Alcotest.(check bool) "has reasoning_start" true has_start;
+  Alcotest.(check bool) "has reasoning_delta" true has_delta;
+  Alcotest.(check bool) "has reasoning_end" true has_end
 
 let () =
   Alcotest.run "To_ui_stream"
