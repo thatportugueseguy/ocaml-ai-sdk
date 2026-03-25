@@ -18,7 +18,7 @@ let test_stop_reason_none () =
 (* Parse response *)
 let test_parse_text_response () =
   let json =
-    Yojson.Safe.from_string
+    Yojson.Basic.from_string
       {|{
         "id": "msg_123",
         "type": "message",
@@ -38,7 +38,7 @@ let test_parse_text_response () =
 
 let test_parse_tool_use_response () =
   let json =
-    Yojson.Safe.from_string
+    Yojson.Basic.from_string
       {|{
         "id": "msg_456",
         "content": [
@@ -56,7 +56,7 @@ let test_parse_tool_use_response () =
 
 let test_parse_thinking_response () =
   let json =
-    Yojson.Safe.from_string
+    Yojson.Basic.from_string
       {|{
         "id": "msg_789",
         "content": [
@@ -94,12 +94,8 @@ let test_is_retryable () =
 
 (* Usage conversion *)
 let test_usage_conversion () =
-  let json = Yojson.Safe.from_string {|{"input_tokens": 100, "output_tokens": 50, "cache_read_input_tokens": 80}|} in
-  let usage =
-    match Ai_provider_anthropic.Convert_usage.anthropic_usage_of_yojson json with
-    | Ok u -> u
-    | Error e -> Alcotest.fail ("Failed to parse usage: " ^ e)
-  in
+  let json = Yojson.Basic.from_string {|{"input_tokens": 100, "output_tokens": 50, "cache_read_input_tokens": 80}|} in
+  let usage = Ai_provider_anthropic.Convert_usage.anthropic_usage_of_json json in
   let sdk_usage = Ai_provider_anthropic.Convert_usage.to_usage usage in
   Alcotest.(check int) "input" 100 sdk_usage.input_tokens;
   Alcotest.(check int) "output" 50 sdk_usage.output_tokens;

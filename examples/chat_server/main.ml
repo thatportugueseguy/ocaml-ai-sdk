@@ -11,7 +11,19 @@
         -H "Content-Type: application/json" \
         -d '{"messages":[{"role":"user","content":"Hello!"}]}' *)
 
+open Melange_json.Primitives
+
 let model = Ai_provider_anthropic.model "claude-sonnet-4-6"
+
+type city_args = { city : string } [@@json.allow_extra_fields] [@@deriving of_json]
+
+type weather_result = {
+  city : string;
+  temperature : int;
+  condition : string;
+  unit : string;
+}
+[@@deriving to_json]
 
 let weather_tool : Ai_core.Core_tool.t =
   {
@@ -25,12 +37,9 @@ let weather_tool : Ai_core.Core_tool.t =
         ];
     execute =
       (fun args ->
-        let city =
-          try Yojson.Safe.Util.(member "city" args |> to_string) with Yojson.Safe.Util.Type_error _ -> "unknown"
-        in
+        let city = try (city_args_of_json args).city with _ -> "unknown" in
         Lwt.return
-          (`Assoc
-             [ "city", `String city; "temperature", `Int 22; "condition", `String "sunny"; "unit", `String "celsius" ]));
+          (weather_result_to_json { city; temperature = 22; condition = "sunny"; unit = "celsius" }));
   }
 
 let handler conn req body =

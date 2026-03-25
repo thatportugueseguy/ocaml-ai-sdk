@@ -1,3 +1,7 @@
+open Melange_json.Primitives
+
+type query_args = { query : string } [@@json.allow_extra_fields] [@@deriving of_json]
+
 (* Mock model that returns text *)
 let make_text_model response_text =
   let module M : Ai_provider.Language_model.S = struct
@@ -80,7 +84,7 @@ let search_tool : Ai_core.Core_tool.t =
     parameters = `Assoc [ "type", `String "object" ];
     execute =
       (fun args ->
-        let query = try Yojson.Safe.Util.(member "query" args |> to_string) with _ -> "unknown" in
+        let query = try (query_args_of_json args).query with _ -> "unknown" in
         Lwt.return (`String (Printf.sprintf "Results for: %s" query)));
   }
 

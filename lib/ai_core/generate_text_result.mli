@@ -3,13 +3,13 @@
 type tool_call = {
   tool_call_id : string;
   tool_name : string;
-  args : Yojson.Safe.t;
+  args : Yojson.Basic.t;
 }
 
 type tool_result = {
   tool_call_id : string;
   tool_name : string;
-  result : Yojson.Safe.t;
+  result : Yojson.Basic.t;
   is_error : bool;
 }
 

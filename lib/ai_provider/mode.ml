@@ -1,6 +1,6 @@
 type json_schema = {
   name : string;
-  schema : Yojson.Safe.t;
+  schema : Yojson.Basic.t;
 }
 
 type t =

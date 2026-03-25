@@ -1,5 +1,5 @@
 (test
  (name test_parse)
- (libraries claude_agent_sdk alcotest lwt lwt.unix)
+ (libraries claude_agent_sdk alcotest lwt lwt.unix melange-json-native)
  (preprocess
-  (pps lwt_ppx ppx_deriving_yojson)))
+  (pps lwt_ppx ppx_deriving_yojson melange-json-native.ppx)))

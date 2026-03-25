@@ -1,3 +1,13 @@
+open Melange_json.Primitives
+
+type city_args = { city : string } [@@json.allow_extra_fields] [@@deriving of_json]
+
+type weather_result = {
+  city : string;
+  temperature : int;
+  condition : string;
+} [@@json.allow_extra_fields] [@@deriving of_json]
+
 (** End-to-end tests for the Core SDK.
 
     Tests the full pipeline from generate_text/stream_text through
@@ -10,56 +20,67 @@
 
 (* === Mock Anthropic Provider Responses === *)
 
+let no_cache : Ai_provider_anthropic.Convert_usage.anthropic_usage -> Ai_provider_anthropic.Convert_usage.anthropic_usage =
+  fun u -> { u with cache_read_input_tokens = None; cache_creation_input_tokens = None }
+
+let text_block text : Ai_provider_anthropic.Convert_response.content_block_json =
+  { type_ = "text"; text = Some text; id = None; name = None; input = None; thinking = None; signature = None }
+
+let mock_response ~id ~content ~stop_reason ~input_tokens ~output_tokens =
+  Ai_provider_anthropic.Convert_response.anthropic_response_json_to_json
+    {
+      id = Some id;
+      model = Some "claude-sonnet-4-6";
+      content;
+      stop_reason = Some stop_reason;
+      usage = no_cache { input_tokens; output_tokens; cache_read_input_tokens = None; cache_creation_input_tokens = None };
+    }
+
 (* Simple text response *)
 let mock_text_response =
-  Yojson.Safe.from_string
-    {|{
-      "id": "msg_e2e_1",
-      "content": [{"type": "text", "text": "The capital of France is Paris."}],
-      "model": "claude-sonnet-4-6",
-      "stop_reason": "end_turn",
-      "usage": {"input_tokens": 15, "output_tokens": 8}
-    }|}
+  mock_response ~id:"msg_e2e_1" ~content:[ text_block "The capital of France is Paris." ] ~stop_reason:"end_turn"
+    ~input_tokens:15 ~output_tokens:8
 
 (* Tool call response *)
 let mock_tool_call_response =
-  Yojson.Safe.from_string
-    {|{
-      "id": "msg_e2e_2",
-      "content": [
-        {"type": "text", "text": "Let me look that up."},
-        {"type": "tool_use", "id": "toolu_1", "name": "get_weather",
-         "input": {"city": "Paris"}}
-      ],
-      "model": "claude-sonnet-4-6",
-      "stop_reason": "tool_use",
-      "usage": {"input_tokens": 20, "output_tokens": 15}
-    }|}
+  mock_response ~id:"msg_e2e_2"
+    ~content:
+      [
+        text_block "Let me look that up.";
+        {
+          type_ = "tool_use";
+          text = None;
+          id = Some "toolu_1";
+          name = Some "get_weather";
+          input = Some (`Assoc [ "city", `String "Paris" ]);
+          thinking = None;
+          signature = None;
+        };
+      ]
+    ~stop_reason:"tool_use" ~input_tokens:20 ~output_tokens:15
 
 (* Follow-up text after tool *)
 let mock_followup_response =
-  Yojson.Safe.from_string
-    {|{
-      "id": "msg_e2e_3",
-      "content": [{"type": "text", "text": "The weather in Paris is 22C and sunny."}],
-      "model": "claude-sonnet-4-6",
-      "stop_reason": "end_turn",
-      "usage": {"input_tokens": 30, "output_tokens": 12}
-    }|}
+  mock_response ~id:"msg_e2e_3" ~content:[ text_block "The weather in Paris is 22C and sunny." ] ~stop_reason:"end_turn"
+    ~input_tokens:30 ~output_tokens:12
 
 (* Thinking response *)
 let mock_thinking_response =
-  Yojson.Safe.from_string
-    {|{
-      "id": "msg_e2e_4",
-      "content": [
-        {"type": "thinking", "thinking": "Let me count the r's...", "signature": "sig_1"},
-        {"type": "text", "text": "There are 3 r's in strawberry."}
-      ],
-      "model": "claude-sonnet-4-6",
-      "stop_reason": "end_turn",
-      "usage": {"input_tokens": 25, "output_tokens": 20}
-    }|}
+  mock_response ~id:"msg_e2e_4"
+    ~content:
+      [
+        {
+          type_ = "thinking";
+          text = None;
+          id = None;
+          name = None;
+          input = None;
+          thinking = Some "Let me count the r's...";
+          signature = Some "sig_1";
+        };
+        text_block "There are 3 r's in strawberry.";
+      ]
+    ~stop_reason:"end_turn" ~input_tokens:25 ~output_tokens:20
 
 let make_mock_config response =
   let fetch ~url:_ ~headers:_ ~body:_ = Lwt.return response in
@@ -81,7 +102,7 @@ let weather_tool : Ai_core.Core_tool.t =
       `Assoc [ "type", `String "object"; "properties", `Assoc [ "city", `Assoc [ "type", `String "string" ] ] ];
     execute =
       (fun args ->
-        let city = try Yojson.Safe.Util.(member "city" args |> to_string) with _ -> "unknown" in
+        let city = try (city_args_of_json args).city with _ -> "unknown" in
         Lwt.return (`Assoc [ "city", `String city; "temperature", `Int 22; "condition", `String "sunny" ]));
   }
 
@@ -248,10 +269,9 @@ let test_generate_text_tool_result_content () =
   in
   (* Verify the tool result contains expected JSON *)
   let tr = List.nth result.tool_results 0 in
-  let city = Yojson.Safe.Util.(member "city" tr.result |> to_string) in
-  let temp = Yojson.Safe.Util.(member "temperature" tr.result |> to_int) in
-  Alcotest.(check string) "tool result city" "Paris" city;
-  Alcotest.(check int) "tool result temp" 22 temp
+  let wr = weather_result_of_json tr.result in
+  Alcotest.(check string) "tool result city" "Paris" wr.city;
+  Alcotest.(check int) "tool result temp" 22 wr.temperature
 
 let test_generate_text_step_callback () =
   let config = make_tool_loop_config () in

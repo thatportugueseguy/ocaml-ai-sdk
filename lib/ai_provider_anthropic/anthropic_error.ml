@@ -1,3 +1,5 @@
+open Melange_json.Primitives
+
 type anthropic_error_type =
   | Invalid_request_error
   | Authentication_error
@@ -24,12 +26,12 @@ let error_type_of_string = function
   | s -> Unknown_error s
 
 type error_detail = {
-  typ : string; [@key "type"]
+  typ : string; [@json.key "type"]
   message : string;
 }
-[@@deriving of_yojson]
+[@@deriving of_json]
 
-type error_envelope = { error : error_detail } [@@deriving of_yojson]
+type error_envelope = { error : error_detail } [@@deriving of_json]
 
 let is_retryable = function
   | Rate_limit_error | Overloaded_error -> true
@@ -39,11 +41,12 @@ let is_retryable = function
 let of_response ~status ~body =
   let error_type, message =
     try
-      let json = Yojson.Safe.from_string body in
-      match error_envelope_of_yojson json with
-      | Ok { error = { typ; message } } -> Some (error_type_of_string typ), message
-      | Error _ -> None, body
-    with Yojson.Json_error _ -> None, body
+      let json = Yojson.Basic.from_string body in
+      let { error = { typ; message } } = error_envelope_of_json json in
+      Some (error_type_of_string typ), message
+    with
+    | Yojson.Json_error _ -> None, body
+    | Melange_json.Of_json_error _ -> None, body
   in
   let body =
     match error_type with

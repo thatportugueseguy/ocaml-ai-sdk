@@ -8,8 +8,8 @@ let headers =
   ]
 
 let chunk_to_sse chunk =
-  let json = Ui_message_chunk.to_yojson chunk in
-  Printf.sprintf "data: %s\n\n" (Yojson.Safe.to_string json)
+  let json = Ui_message_chunk.to_json chunk in
+  Printf.sprintf "data: %s\n\n" (Yojson.Basic.to_string json)
 
 let done_sse = "data: [DONE]\n\n"
 

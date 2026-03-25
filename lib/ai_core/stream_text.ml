@@ -247,7 +247,7 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
                       tool_call_type = "function";
                       tool_call_id = tc.tool_call_id;
                       tool_name = tc.tool_name;
-                      args = Yojson.Safe.to_string tc.args;
+                      args = Yojson.Basic.to_string tc.args;
                     }
                   :: !parts)
               tool_calls;

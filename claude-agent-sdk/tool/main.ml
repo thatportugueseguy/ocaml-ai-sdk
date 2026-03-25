@@ -63,7 +63,7 @@ let () =
             CCOption.iter (Printf.printf " cost=$%.4f") r.total_cost_usd;
             CCOption.iter (fun n -> Printf.printf " turns=%d" n) r.num_turns;
             print_newline ()
-          | Message.Unknown json -> Printf.printf "[unknown] %s\n" (Yojson.Safe.to_string json)
+          | Message.Unknown json -> Printf.printf "[unknown] %s\n" (Yojson.Basic.to_string json)
           | _ -> ());
           Lwt.return_unit)
         messages

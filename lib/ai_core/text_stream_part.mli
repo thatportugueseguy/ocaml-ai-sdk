@@ -18,7 +18,7 @@ type t =
   | Tool_call of {
       tool_call_id : string;
       tool_name : string;
-      args : Yojson.Safe.t;
+      args : Yojson.Basic.t;
     }
   | Tool_call_delta of {
       tool_call_id : string;
@@ -28,7 +28,7 @@ type t =
   | Tool_result of {
       tool_call_id : string;
       tool_name : string;
-      result : Yojson.Safe.t;
+      result : Yojson.Basic.t;
       is_error : bool;
     }
   | Source of {

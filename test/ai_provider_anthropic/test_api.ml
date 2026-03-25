@@ -1,28 +1,50 @@
 (* make_request_body tests *)
 
+open Melange_json.Primitives
+
+type thinking_json = {
+  type_ : string; [@json.key "type"]
+  budget_tokens : int;
+} [@@deriving of_json]
+
+type request_fields = {
+  model : string;
+  messages : Melange_json.t list;
+  max_tokens : int;
+  system : string option; [@json.default None]
+  temperature : float option; [@json.default None]
+  top_p : float option; [@json.default None]
+  top_k : int option; [@json.default None]
+  stream : bool option; [@json.default None]
+  tools : Melange_json.t list option; [@json.default None]
+  tool_choice : Melange_json.t option; [@json.default None]
+  stop_sequences : string list option; [@json.default None]
+  thinking : thinking_json option; [@json.default None]
+} [@@json.allow_extra_fields] [@@deriving of_json]
+
+type mock_response_fields = {
+  id : string;
+} [@@json.allow_extra_fields] [@@deriving of_json]
+
 let test_minimal_body () =
   let body = Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] () in
-  let open Yojson.Safe.Util in
-  let model = member "model" body |> to_string in
-  Alcotest.(check string) "model" "claude-sonnet-4-6" model;
-  let max_tokens = member "max_tokens" body |> to_int in
-  Alcotest.(check int) "default max_tokens" 4096 max_tokens
+  let r = request_fields_of_json body in
+  Alcotest.(check string) "model" "claude-sonnet-4-6" r.model;
+  Alcotest.(check int) "default max_tokens" 4096 r.max_tokens
 
 let test_body_with_stream () =
   let body =
     Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] ~stream:true ()
   in
-  let open Yojson.Safe.Util in
-  let stream = member "stream" body |> to_bool in
-  Alcotest.(check bool) "stream" true stream
+  let r = request_fields_of_json body in
+  Alcotest.(check (option bool)) "stream" (Some true) r.stream
 
 let test_body_with_temperature () =
   let body =
     Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] ~temperature:0.7 ()
   in
-  let open Yojson.Safe.Util in
-  let temp = member "temperature" body |> to_float in
-  Alcotest.(check (float 0.01)) "temperature" 0.7 temp
+  let r = request_fields_of_json body in
+  Alcotest.(check (option (float 0.01))) "temperature" (Some 0.7) r.temperature
 
 let test_body_with_thinking () =
   let budget = Ai_provider_anthropic.Thinking.budget_exn 2048 in
@@ -30,28 +52,25 @@ let test_body_with_thinking () =
   let body =
     Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] ~thinking ()
   in
-  let open Yojson.Safe.Util in
-  let thinking_json = member "thinking" body in
-  let thinking_type = member "type" thinking_json |> to_string in
-  Alcotest.(check string) "type" "enabled" thinking_type;
-  let budget_tokens = member "budget_tokens" thinking_json |> to_int in
-  Alcotest.(check int) "budget" 2048 budget_tokens
+  let r = request_fields_of_json body in
+  match r.thinking with
+  | None -> Alcotest.fail "expected thinking"
+  | Some t ->
+    Alcotest.(check string) "type" "enabled" t.type_;
+    Alcotest.(check int) "budget" 2048 t.budget_tokens
 
 let test_body_omits_none_fields () =
   let body = Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] () in
-  let open Yojson.Safe.Util in
-  (* temperature should not be present *)
-  let temp = member "temperature" body in
-  Alcotest.(check bool) "no temperature" true (temp = `Null)
+  let r = request_fields_of_json body in
+  Alcotest.(check (option (float 0.01))) "no temperature" None r.temperature
 
 let test_body_with_system () =
   let body =
     Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] ~system:"Be helpful"
       ()
   in
-  let open Yojson.Safe.Util in
-  let system = member "system" body |> to_string in
-  Alcotest.(check string) "system" "Be helpful" system
+  let r = request_fields_of_json body in
+  Alcotest.(check (option string)) "system" (Some "Be helpful") r.system
 
 (* Beta headers tests *)
 
@@ -79,14 +98,18 @@ let test_merge_deduplicates () =
 (* Mock fetch test *)
 let test_messages_with_mock_fetch () =
   let mock_response =
-    `Assoc
-      [
-        "id", `String "msg_test";
-        "content", `List [ `Assoc [ "type", `String "text"; "text", `String "Hi" ] ];
-        "model", `String "claude-sonnet-4-6";
-        "stop_reason", `String "end_turn";
-        "usage", `Assoc [ "input_tokens", `Int 5; "output_tokens", `Int 2 ];
-      ]
+    Ai_provider_anthropic.Convert_response.anthropic_response_json_to_json
+      {
+        id = Some "msg_test";
+        model = Some "claude-sonnet-4-6";
+        content =
+          [
+            { type_ = "text"; text = Some "Hi"; id = None; name = None; input = None; thinking = None; signature = None };
+          ];
+        stop_reason = Some "end_turn";
+        usage =
+          { input_tokens = 5; output_tokens = 2; cache_read_input_tokens = None; cache_creation_input_tokens = None };
+      }
   in
   let fetch ~url:_ ~headers:_ ~body:_ = Lwt.return mock_response in
   let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
@@ -96,9 +119,8 @@ let test_messages_with_mock_fetch () =
   in
   match result with
   | `Json json ->
-    let open Yojson.Safe.Util in
-    let id = member "id" json |> to_string in
-    Alcotest.(check string) "id" "msg_test" id
+    let r = mock_response_fields_of_json json in
+    Alcotest.(check string) "id" "msg_test" r.id
   | `Stream _ -> Alcotest.fail "expected Json"
 
 let () =

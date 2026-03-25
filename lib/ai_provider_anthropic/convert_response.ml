@@ -1,22 +1,24 @@
+open Melange_json.Primitives
+
 type content_block_json = {
-  type_ : string; [@key "type"]
-  text : string option; [@default None]
-  id : string option; [@default None]
-  name : string option; [@default None]
-  input : Yojson.Safe.t option; [@default None]
-  thinking : string option; [@default None]
-  signature : string option; [@default None]
+  type_ : string; [@json.key "type"]
+  text : string option; [@json.default None]
+  id : string option; [@json.default None]
+  name : string option; [@json.default None]
+  input : Melange_json.t option; [@json.default None]
+  thinking : string option; [@json.default None]
+  signature : string option; [@json.default None]
 }
-[@@deriving of_yojson { strict = false }]
+[@@json.allow_extra_fields] [@@deriving json]
 
 type anthropic_response_json = {
-  id : string option; [@default None]
-  model : string option; [@default None]
-  content : content_block_json list; [@default []]
-  stop_reason : string option; [@default None]
+  id : string option; [@json.default None]
+  model : string option; [@json.default None]
+  content : content_block_json list; [@json.default []]
+  stop_reason : string option; [@json.default None]
   usage : Convert_usage.anthropic_usage;
 }
-[@@deriving of_yojson { strict = false }]
+[@@json.allow_extra_fields] [@@deriving json]
 
 let map_stop_reason = function
   | Some "end_turn" -> Ai_provider.Finish_reason.Stop
@@ -34,7 +36,7 @@ let parse_content_block (block : content_block_json) =
     | Some id, Some name, Some input ->
       Some
         (Ai_provider.Content.Tool_call
-           { tool_call_type = "function"; tool_call_id = id; tool_name = name; args = Yojson.Safe.to_string input })
+           { tool_call_type = "function"; tool_call_id = id; tool_name = name; args = Yojson.Basic.to_string input })
     | _ -> None)
   | "thinking" ->
     Option.map
@@ -45,16 +47,14 @@ let parse_content_block (block : content_block_json) =
   | _ -> None
 
 let parse_response json =
-  match anthropic_response_json_of_yojson json with
-  | Ok resp ->
-    let content = List.filter_map parse_content_block resp.content in
-    {
-      Ai_provider.Generate_result.content;
-      finish_reason = map_stop_reason resp.stop_reason;
-      usage = Convert_usage.to_usage resp.usage;
-      warnings = [];
-      provider_metadata = Convert_usage.to_provider_metadata resp.usage;
-      request = { body = json };
-      response = { id = resp.id; model = resp.model; headers = []; body = json };
-    }
-  | Error msg -> failwith (Printf.sprintf "Failed to parse Anthropic response: %s" msg)
+  let resp = anthropic_response_json_of_json json in
+  let content = List.filter_map parse_content_block resp.content in
+  {
+    Ai_provider.Generate_result.content;
+    finish_reason = map_stop_reason resp.stop_reason;
+    usage = Convert_usage.to_usage resp.usage;
+    warnings = [];
+    provider_metadata = Convert_usage.to_provider_metadata resp.usage;
+    request = { body = json };
+    response = { id = resp.id; model = resp.model; headers = []; body = json };
+  }

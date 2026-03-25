@@ -1,10 +1,10 @@
-type request_info = { body : Yojson.Safe.t }
+type request_info = { body : Yojson.Basic.t }
 
 type response_info = {
   id : string option;
   model : string option;
   headers : (string * string) list;
-  body : Yojson.Safe.t;
+  body : Yojson.Basic.t;
 }
 
 type t = {

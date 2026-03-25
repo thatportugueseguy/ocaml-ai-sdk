@@ -1,17 +1,19 @@
+open Melange_json.Primitives
+
 type message_part = {
-  type_ : string; [@key "type"]
-  text : string option; [@default None]
+  type_ : string; [@json.key "type"]
+  text : string option; [@json.default None]
 }
-[@@deriving of_yojson { strict = false }]
+[@@json.allow_extra_fields] [@@deriving of_json]
 
 type chat_message = {
   role : string;
-  content : string option; [@default None]
-  parts : message_part list option; [@default None]
+  content : string option; [@json.default None]
+  parts : message_part list option; [@json.default None]
 }
-[@@deriving of_yojson { strict = false }]
+[@@json.allow_extra_fields] [@@deriving of_json]
 
-type chat_request = { messages : chat_message list } [@@deriving of_yojson { strict = false }]
+type chat_request = { messages : chat_message list } [@@json.allow_extra_fields] [@@deriving of_json]
 
 (* Extract text from a message — handles both v5 "content" string
    and v6 "parts" array formats from useChat *)
@@ -27,9 +29,8 @@ let extract_text (msg : chat_message) =
   | None -> Option.value ~default:"" msg.content
 
 let parse_messages_from_body body_json =
-  match chat_request_of_yojson body_json with
-  | Error _ -> []
-  | Ok { messages } ->
+  try
+    let { messages } = chat_request_of_json body_json in
     List.filter_map
       (fun (msg : chat_message) ->
         let text = extract_text msg in
@@ -45,6 +46,7 @@ let parse_messages_from_body body_json =
                { content = [ Text { text; provider_options = Ai_provider.Provider_options.empty } ] })
         | _ -> None)
       messages
+  with Melange_json.Of_json_error _ -> []
 
 let cors_headers =
   [
@@ -68,7 +70,7 @@ let handle_cors_preflight _conn _req _body =
 let handle_chat ~model ?tools ?max_steps ?system ?send_reasoning ?(cors = true) ?provider_options _conn _req body =
   let%lwt body_str = Cohttp_lwt.Body.to_string body in
   let body_json =
-    try Ok (Yojson.Safe.from_string body_str)
+    try Ok (Yojson.Basic.from_string body_str)
     with Yojson.Json_error msg ->
       Printf.eprintf "[ai_core] handle_chat: invalid JSON in request body: %s\n%!" msg;
       Error msg

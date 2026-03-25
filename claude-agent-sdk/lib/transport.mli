@@ -8,13 +8,13 @@ type t
 val create : ?switch:Lwt_switch.t -> options:Options.t -> prompt:string -> unit -> t Lwt.t
 
 (** Write a JSON object as a line to stdin. Thread-safe via mutex. *)
-val write_json : t -> Yojson.Safe.t -> unit Lwt.t
+val write_json : t -> Yojson.Basic.t -> unit Lwt.t
 
 (** Close stdin to signal end of input. *)
 val end_input : t -> unit Lwt.t
 
 (** Stream of JSON objects from stdout. Ends when the process closes. *)
-val read_stream : t -> Yojson.Safe.t Lwt_stream.t
+val read_stream : t -> Yojson.Basic.t Lwt_stream.t
 
 (** Close stdin and wait for process exit. *)
 val close : t -> Unix.process_status Lwt.t

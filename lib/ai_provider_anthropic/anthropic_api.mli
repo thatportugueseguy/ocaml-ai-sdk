@@ -15,13 +15,13 @@ val make_request_body :
   ?thinking:Thinking.t ->
   ?stream:bool ->
   unit ->
-  Yojson.Safe.t
+  Yojson.Basic.t
 
 (** Send a request to the Messages API.
     Returns [`Json] for non-streaming, [`Stream] for streaming (raw SSE lines). *)
 val messages :
   config:Config.t ->
-  body:Yojson.Safe.t ->
+  body:Yojson.Basic.t ->
   extra_headers:(string * string) list ->
   stream:bool ->
-  [ `Json of Yojson.Safe.t | `Stream of string Lwt_stream.t ] Lwt.t
+  [ `Json of Yojson.Basic.t | `Stream of string Lwt_stream.t ] Lwt.t

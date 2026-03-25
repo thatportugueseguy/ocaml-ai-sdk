@@ -1,9 +1,20 @@
 (** End-to-end integration test exercising the full pipeline:
     Provider abstraction -> Anthropic provider -> mock HTTP -> response parsing *)
 
+open Melange_json.Primitives
+
+type thinking_json = {
+  type_ : string; [@json.key "type"]
+  budget_tokens : int;
+} [@@deriving of_json]
+
+type request_with_thinking = {
+  thinking : thinking_json option; [@json.default None]
+} [@@json.allow_extra_fields] [@@deriving of_json]
+
 (* Mock responses *)
 let mock_text_response =
-  Yojson.Safe.from_string
+  Yojson.Basic.from_string
     {|{
       "id": "msg_e2e_1",
       "type": "message",
@@ -15,7 +26,7 @@ let mock_text_response =
     }|}
 
 let mock_thinking_response =
-  Yojson.Safe.from_string
+  Yojson.Basic.from_string
     {|{
       "id": "msg_e2e_2",
       "type": "message",
@@ -30,7 +41,7 @@ let mock_thinking_response =
     }|}
 
 let mock_tool_response =
-  Yojson.Safe.from_string
+  Yojson.Basic.from_string
     {|{
       "id": "msg_e2e_3",
       "type": "message",
@@ -131,7 +142,7 @@ let test_tool_call_response () =
 let test_provider_options_flow () =
   let request_body = ref `Null in
   let fetch ~url:_ ~headers:_ ~body =
-    request_body := Yojson.Safe.from_string body;
+    request_body := Yojson.Basic.from_string body;
     Lwt.return mock_text_response
   in
   let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
@@ -144,14 +155,12 @@ let test_provider_options_flow () =
   let opts = { (make_opts "Think about this") with provider_options } in
   let _result = Lwt_main.run (Ai_provider.Language_model.generate model opts) in
   (* Verify thinking was included in the request *)
-  let thinking_json = Yojson.Safe.Util.member "thinking" !request_body in
-  match thinking_json with
-  | `Null -> Alcotest.fail "expected thinking in request"
-  | json ->
-    let thinking_type = Yojson.Safe.Util.(member "type" json |> to_string) in
-    Alcotest.(check string) "thinking type" "enabled" thinking_type;
-    let budget_val = Yojson.Safe.Util.(member "budget_tokens" json |> to_int) in
-    Alcotest.(check int) "budget" 2048 budget_val
+  let r = request_with_thinking_of_json !request_body in
+  match r.thinking with
+  | None -> Alcotest.fail "expected thinking in request"
+  | Some t ->
+    Alcotest.(check string) "thinking type" "enabled" t.type_;
+    Alcotest.(check int) "budget" 2048 t.budget_tokens
 
 (* Test 5: Middleware applies to Anthropic model *)
 let test_middleware_with_anthropic () =

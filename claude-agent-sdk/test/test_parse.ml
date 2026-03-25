@@ -1,23 +1,20 @@
 open Claude_agent_sdk
+open Melange_json.Primitives
 
-(* Test helpers *)
-
-let check_ok msg = function
-  | Ok v -> v
-  | Error e -> Alcotest.fail (msg ^ ": " ^ e)
+type bash_input = { command : string } [@@json.allow_extra_fields] [@@deriving of_json]
 
 (* Content block parsing *)
 
 let test_text_block () =
-  let json = Yojson.Safe.from_string {|{"type":"text","text":"hello world"}|} in
-  let block = check_ok "text_block" (Types.content_block_of_yojson json) in
+  let json = Yojson.Basic.from_string {|{"type":"text","text":"hello world"}|} in
+  let block = Types.content_block_of_json json in
   match block with
   | Types.Text { text } -> Alcotest.(check string) "text content" "hello world" text
   | _ -> Alcotest.fail "expected Text block"
 
 let test_thinking_block () =
-  let json = Yojson.Safe.from_string {|{"type":"thinking","thinking":"let me think","signature":"sig123"}|} in
-  let block = check_ok "thinking_block" (Types.content_block_of_yojson json) in
+  let json = Yojson.Basic.from_string {|{"type":"thinking","thinking":"let me think","signature":"sig123"}|} in
+  let block = Types.content_block_of_json json in
   match block with
   | Types.Thinking { thinking; signature } ->
     Alcotest.(check string) "thinking" "let me think" thinking;
@@ -25,21 +22,21 @@ let test_thinking_block () =
   | _ -> Alcotest.fail "expected Thinking block"
 
 let test_tool_use_block () =
-  let json = Yojson.Safe.from_string {|{"type":"tool_use","id":"tu_1","name":"Bash","input":{"command":"ls"}}|} in
-  let block = check_ok "tool_use_block" (Types.content_block_of_yojson json) in
+  let json = Yojson.Basic.from_string {|{"type":"tool_use","id":"tu_1","name":"Bash","input":{"command":"ls"}}|} in
+  let block = Types.content_block_of_json json in
   match block with
   | Types.Tool_use { id; name; input } ->
     Alcotest.(check string) "id" "tu_1" id;
     Alcotest.(check string) "name" "Bash" name;
-    let cmd = Yojson.Safe.Util.(member "command" input |> to_string) in
-    Alcotest.(check string) "input.command" "ls" cmd
+    let r = bash_input_of_json input in
+    Alcotest.(check string) "input.command" "ls" r.command
   | _ -> Alcotest.fail "expected Tool_use block"
 
 let test_tool_result_block () =
   let json =
-    Yojson.Safe.from_string {|{"type":"tool_result","tool_use_id":"tu_1","content":"output","is_error":false}|}
+    Yojson.Basic.from_string {|{"type":"tool_result","tool_use_id":"tu_1","content":"output","is_error":false}|}
   in
-  let block = check_ok "tool_result_block" (Types.content_block_of_yojson json) in
+  let block = Types.content_block_of_json json in
   match block with
   | Types.Tool_result { tool_use_id; content; is_error } ->
     Alcotest.(check string) "tool_use_id" "tu_1" tool_use_id;
@@ -48,27 +45,27 @@ let test_tool_result_block () =
   | _ -> Alcotest.fail "expected Tool_result block"
 
 let test_unknown_content_block () =
-  let json = Yojson.Safe.from_string {|{"type":"unknown_type","data":123}|} in
-  match Types.content_block_of_yojson json with
-  | Error _ -> () (* expected *)
-  | Ok _ -> Alcotest.fail "expected error for unknown type"
+  let json = Yojson.Basic.from_string {|{"type":"unknown_type","data":123}|} in
+  match Types.content_block_of_json json with
+  | exception _ -> () (* expected — of_json raises on unknown type *)
+  | _ -> Alcotest.fail "expected error for unknown type"
 
 (* Usage parsing *)
 
 let test_usage () =
   let json =
-    Yojson.Safe.from_string
+    Yojson.Basic.from_string
       {|{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":10,"cache_creation_input_tokens":5,"extra_field":"ignored"}|}
   in
-  let usage = check_ok "usage" (Types.usage_of_yojson json) in
+  let usage = Types.usage_of_json json in
   Alcotest.(check int) "input_tokens" 100 usage.input_tokens;
   Alcotest.(check int) "output_tokens" 50 usage.output_tokens;
   Alcotest.(check int) "cache_read" 10 usage.cache_read_input_tokens;
   Alcotest.(check int) "cache_creation" 5 usage.cache_creation_input_tokens
 
 let test_usage_defaults () =
-  let json = Yojson.Safe.from_string {|{}|} in
-  let usage = check_ok "usage_defaults" (Types.usage_of_yojson json) in
+  let json = Yojson.Basic.from_string {|{}|} in
+  let usage = Types.usage_of_json json in
   Alcotest.(check int) "input_tokens" 0 usage.input_tokens;
   Alcotest.(check int) "output_tokens" 0 usage.output_tokens
 
@@ -76,7 +73,7 @@ let test_usage_defaults () =
 
 let test_system_message () =
   let json =
-    Yojson.Safe.from_string
+    Yojson.Basic.from_string
       {|{"type":"system","subtype":"init","cwd":"/tmp","session_id":"sess-1","tools":["Bash","Glob"],"model":"claude-sonnet-4-5-20250929","permissionMode":"bypassPermissions","uuid":"uuid-1","extra":"ignored"}|}
   in
   let msg = Message.of_json json in
@@ -92,7 +89,7 @@ let test_system_message () =
 
 let test_assistant_message () =
   let json =
-    Yojson.Safe.from_string
+    Yojson.Basic.from_string
       {|{"type":"assistant","message":{"id":"msg_1","model":"claude-sonnet-4-5-20250929","role":"assistant","content":[{"type":"text","text":"hello"}],"stop_reason":null,"usage":{"input_tokens":10,"output_tokens":5}},"session_id":"sess-1","uuid":"uuid-2"}|}
   in
   let msg = Message.of_json json in
@@ -109,7 +106,7 @@ let test_assistant_message () =
 
 let test_result_message () =
   let json =
-    Yojson.Safe.from_string
+    Yojson.Basic.from_string
       {|{"type":"result","subtype":"success","is_error":false,"duration_ms":2087,"duration_api_ms":1838,"num_turns":1,"result":"hello","session_id":"sess-1","total_cost_usd":0.021}|}
   in
   let msg = Message.of_json json in
@@ -123,13 +120,13 @@ let test_result_message () =
   | _ -> Alcotest.fail "expected Result message"
 
 let test_unknown_message () =
-  let json = Yojson.Safe.from_string {|{"type":"future_type","data":"something"}|} in
+  let json = Yojson.Basic.from_string {|{"type":"future_type","data":"something"}|} in
   match Message.of_json json with
   | Message.Unknown _ -> ()
   | _ -> Alcotest.fail "expected Unknown message"
 
 let test_missing_type () =
-  let json = Yojson.Safe.from_string {|{"data":"no type field"}|} in
+  let json = Yojson.Basic.from_string {|{"data":"no type field"}|} in
   match Message.of_json json with
   | Message.Unknown _ -> ()
   | _ -> Alcotest.fail "expected Unknown message"
@@ -137,25 +134,25 @@ let test_missing_type () =
 (* Message convenience functions *)
 
 let test_is_result () =
-  let json = Yojson.Safe.from_string {|{"type":"result","subtype":"success","is_error":false,"result":"ok"}|} in
+  let json = Yojson.Basic.from_string {|{"type":"result","subtype":"success","is_error":false,"result":"ok"}|} in
   let msg = Message.of_json json in
   Alcotest.(check bool) "is_result" true (Message.is_result msg)
 
 let test_result_text () =
-  let json = Yojson.Safe.from_string {|{"type":"result","subtype":"success","is_error":false,"result":"hello"}|} in
+  let json = Yojson.Basic.from_string {|{"type":"result","subtype":"success","is_error":false,"result":"hello"}|} in
   let msg = Message.of_json json in
   Alcotest.(check (option string)) "result_text" (Some "hello") (Message.result_text msg)
 
 let test_assistant_text () =
   let json =
-    Yojson.Safe.from_string
+    Yojson.Basic.from_string
       {|{"type":"assistant","message":{"id":"msg_1","model":"m","role":"assistant","content":[{"type":"text","text":"hello "},{"type":"text","text":"world"}],"stop_reason":null,"usage":{}}}|}
   in
   let msg = Message.of_json json in
   Alcotest.(check (option string)) "assistant_text" (Some "hello world") (Message.assistant_text msg)
 
 let test_session_id_extraction () =
-  let json = Yojson.Safe.from_string {|{"type":"system","subtype":"init","session_id":"sess-42"}|} in
+  let json = Yojson.Basic.from_string {|{"type":"system","subtype":"init","session_id":"sess-42"}|} in
   let msg = Message.of_json json in
   Alcotest.(check (option string)) "session_id" (Some "sess-42") (Message.session_id msg)
 
@@ -163,8 +160,8 @@ let test_session_id_extraction () =
 
 let test_content_block_roundtrip () =
   let block = Types.Text { text = "hello" } in
-  let json = Types.content_block_to_yojson block in
-  let block' = check_ok "roundtrip" (Types.content_block_of_yojson json) in
+  let json = Types.content_block_to_json block in
+  let block' = Types.content_block_of_json json in
   match block' with
   | Types.Text { text } -> Alcotest.(check string) "roundtrip text" "hello" text
   | _ -> Alcotest.fail "roundtrip failed"

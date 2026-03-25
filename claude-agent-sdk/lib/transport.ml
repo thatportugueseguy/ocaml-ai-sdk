@@ -8,8 +8,8 @@ type t = {
   stdout_ch : Lwt_io.input_channel;
   stderr_fd : Lwt_unix.file_descr;
   write_mutex : Lwt_mutex.t;
-  stream : Yojson.Safe.t Lwt_stream.t;
-  push : Yojson.Safe.t option -> unit;
+  stream : Yojson.Basic.t Lwt_stream.t;
+  push : Yojson.Basic.t option -> unit;
   mutable stdin_closed : bool;
   mutable closed : bool;
 }
@@ -79,7 +79,7 @@ let build_args ~(options : Options.t) =
   (match options.mcp_servers with
   | Some servers ->
     let json = `Assoc servers in
-    add "--mcp-config" (Yojson.Safe.to_string json)
+    add "--mcp-config" (Yojson.Basic.to_string json)
   | None -> ());
   List.rev !acc
 
@@ -94,7 +94,7 @@ let push_none t = try t.push None with _ -> ()
 
 let write_json t json =
   Lwt_mutex.with_lock t.write_mutex (fun () ->
-    let line = Yojson.Safe.to_string json in
+    let line = Yojson.Basic.to_string json in
     log#debug "Sending message: %s" line;
     let%lwt () = Lwt_io.write_line t.stdin_ch line in
     Lwt_io.flush t.stdin_ch)
@@ -159,7 +159,7 @@ let create ?switch ~options ~prompt () =
         Lwt.return_unit
       | Some line -> begin
         log#debug "Received message: %s" line;
-        match Yojson.Safe.from_string line with
+        match Yojson.Basic.from_string line with
         | json ->
           push_safe (Some json);
           loop ()

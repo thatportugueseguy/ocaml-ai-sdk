@@ -16,8 +16,9 @@
   ai_provider_anthropic
   alcotest
   yojson
+  melange-json-native
   lwt
   lwt.unix
   unix)
  (preprocess
-  (pps lwt_ppx)))
+  (pps lwt_ppx melange-json-native.ppx)))

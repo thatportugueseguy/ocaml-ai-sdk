@@ -1,3 +1,11 @@
+open Melange_json.Primitives
+
+type tool_json = {
+  name : string;
+  input_schema : Melange_json.t;
+  description : string option; [@json.default None]
+} [@@json.allow_extra_fields] [@@deriving of_json]
+
 let test_single_tool () =
   let tools : Ai_provider.Tool.t list =
     [ { name = "search"; description = Some "Search the web"; parameters = `Assoc [ "type", `String "object" ] } ]
@@ -52,9 +60,9 @@ let test_tool_to_json () =
       cache_control = None;
     }
   in
-  let json = Ai_provider_anthropic.Convert_tools.anthropic_tool_to_yojson tool in
-  let name = Yojson.Safe.Util.(member "name" json |> to_string) in
-  Alcotest.(check string) "name" "search" name
+  let json = Ai_provider_anthropic.Convert_tools.anthropic_tool_to_json tool in
+  let r = tool_json_of_json json in
+  Alcotest.(check string) "name" "search" r.name
 
 let test_empty_tools () =
   let tools, choice = Ai_provider_anthropic.Convert_tools.convert_tools ~tools:[] ~tool_choice:None in

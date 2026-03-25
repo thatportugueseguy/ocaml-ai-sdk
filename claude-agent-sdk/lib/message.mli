@@ -7,11 +7,11 @@ type t =
   | User of Types.user_message
   | Control_request of Types.control_request
   | Control_response of Types.control_response
-  | Unknown of Yojson.Safe.t
+  | Unknown of Yojson.Basic.t
 
 (** Parse raw JSON into a typed message. Returns [Unknown] for
     unrecognized message types. *)
-val of_json : Yojson.Safe.t -> t
+val of_json : Yojson.Basic.t -> t
 
 val is_result : t -> bool
 val result_text : t -> string option

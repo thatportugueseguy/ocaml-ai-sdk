@@ -5,9 +5,9 @@
 
 type t = {
   description : string option;
-  parameters : Yojson.Safe.t;  (** JSON Schema for tool parameters *)
-  execute : Yojson.Safe.t -> Yojson.Safe.t Lwt.t;  (** Execute the tool. Args and result are both JSON. *)
+  parameters : Yojson.Basic.t;  (** JSON Schema for tool parameters *)
+  execute : Yojson.Basic.t -> Yojson.Basic.t Lwt.t;  (** Execute the tool. Args and result are both JSON. *)
 }
 
 (** Parse a JSON string, falling back to [`String s] on parse error. *)
-val safe_parse_json_args : string -> Yojson.Safe.t
+val safe_parse_json_args : string -> Yojson.Basic.t

@@ -1,3 +1,7 @@
+open Melange_json.Primitives
+
+type query_args = { query : string } [@@json.allow_extra_fields] [@@deriving of_json]
+
 (* Core_tool tests *)
 let test_tool_construction () =
   let tool : Ai_core.Core_tool.t =
@@ -16,12 +20,12 @@ let test_tool_execute () =
       parameters = `Null;
       execute =
         (fun args ->
-          let q = Yojson.Safe.Util.(member "query" args |> to_string) in
+          let q = (query_args_of_json args).query in
           Lwt.return (`String (Printf.sprintf "Found: %s" q)));
     }
   in
   let result = Lwt_main.run (tool.execute (`Assoc [ "query", `String "ocaml" ])) in
-  Alcotest.(check string) "result" {|"Found: ocaml"|} (Yojson.Safe.to_string result)
+  Alcotest.(check string) "result" {|"Found: ocaml"|} (Yojson.Basic.to_string result)
 
 (* Generate_text_result tests *)
 let test_add_usage () =

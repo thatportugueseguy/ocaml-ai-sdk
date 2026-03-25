@@ -1,5 +1,5 @@
 type t = {
   name : string;
   description : string option;
-  parameters : Yojson.Safe.t;
+  parameters : Yojson.Basic.t;
 }

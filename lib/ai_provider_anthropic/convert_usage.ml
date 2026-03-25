@@ -1,10 +1,12 @@
+open Melange_json.Primitives
+
 type anthropic_usage = {
-  input_tokens : int; [@default 0]
-  output_tokens : int; [@default 0]
-  cache_read_input_tokens : int option; [@default None]
-  cache_creation_input_tokens : int option; [@default None]
+  input_tokens : int; [@json.default 0]
+  output_tokens : int; [@json.default 0]
+  cache_read_input_tokens : int option; [@json.default None]
+  cache_creation_input_tokens : int option; [@json.default None]
 }
-[@@deriving of_yojson]
+[@@deriving json]
 
 let to_usage u =
   {

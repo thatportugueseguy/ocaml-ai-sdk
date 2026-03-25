@@ -3,7 +3,7 @@
 type anthropic_tool = {
   name : string;
   description : string option;
-  input_schema : Yojson.Safe.t;
+  input_schema : Yojson.Basic.t;
   cache_control : Cache_control.t option;
 }
 
@@ -19,5 +19,5 @@ val convert_tools :
   tool_choice:Ai_provider.Tool_choice.t option ->
   anthropic_tool list * anthropic_tool_choice option
 
-val anthropic_tool_to_yojson : anthropic_tool -> Yojson.Safe.t
-val anthropic_tool_choice_to_yojson : anthropic_tool_choice -> Yojson.Safe.t
+val anthropic_tool_to_json : anthropic_tool -> Yojson.Basic.t
+val anthropic_tool_choice_to_json : anthropic_tool_choice -> Yojson.Basic.t

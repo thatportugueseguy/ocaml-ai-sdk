@@ -1,16 +1,18 @@
+open Melange_json.Primitives
+
 type cc = Cache_control.t
 
-let cc_to_yojson (cc : cc) =
+let cc_to_json (cc : cc) =
   match cc.Cache_control.cache_type with
   | Ephemeral -> `Assoc [ "type", `String "ephemeral" ]
 
 type anthropic_tool = {
   name : string;
-  description : string option; [@yojson.option]
-  input_schema : Yojson.Safe.t;
-  cache_control : cc option; [@yojson.option]
+  description : string option; [@json.option]
+  input_schema : Melange_json.t;
+  cache_control : cc option; [@json.option]
 }
-[@@deriving to_yojson]
+[@@deriving to_json]
 
 type anthropic_tool_choice =
   | Tc_auto
@@ -28,7 +30,7 @@ let convert_tools ~tools ~tool_choice =
   | Some (Ai_provider.Tool_choice.Specific { tool_name }) ->
     List.map convert_single_tool tools, Some (Tc_tool { name = tool_name })
 
-let anthropic_tool_choice_to_yojson = function
+let anthropic_tool_choice_to_json = function
   | Tc_auto -> `Assoc [ "type", `String "auto" ]
   | Tc_any -> `Assoc [ "type", `String "any" ]
   | Tc_tool { name } -> `Assoc [ "type", `String "tool"; "name", `String name ]

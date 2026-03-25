@@ -44,7 +44,7 @@ let to_ui_message_stream ?(message_id : string option) ?(send_reasoning = true) 
           | Tool_result { tool_call_id; result; is_error; tool_name = _ } ->
             if is_error then
               push
-                (Some (Ui_message_chunk.Tool_output_error { tool_call_id; error_text = Yojson.Safe.to_string result }))
+                (Some (Ui_message_chunk.Tool_output_error { tool_call_id; error_text = Yojson.Basic.to_string result }))
             else push (Some (Ui_message_chunk.Tool_output_available { tool_call_id; output = result }))
           | Source { source_id; url; title } -> push (Some (Ui_message_chunk.Source_url { source_id; url; title }))
           | File { url; media_type } -> push (Some (Ui_message_chunk.File { url; media_type }))

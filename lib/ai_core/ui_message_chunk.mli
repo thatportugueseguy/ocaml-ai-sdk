@@ -7,11 +7,11 @@
 type t =
   | Start of {
       message_id : string option;
-      message_metadata : Yojson.Safe.t option;
+      message_metadata : Yojson.Basic.t option;
     }
   | Finish of {
       finish_reason : Ai_provider.Finish_reason.t option;
-      message_metadata : Yojson.Safe.t option;
+      message_metadata : Yojson.Basic.t option;
     }
   | Abort of { reason : string option }
   | Start_step
@@ -39,11 +39,11 @@ type t =
   | Tool_input_available of {
       tool_call_id : string;
       tool_name : string;
-      input : Yojson.Safe.t;
+      input : Yojson.Basic.t;
     }
   | Tool_output_available of {
       tool_call_id : string;
-      output : Yojson.Safe.t;
+      output : Yojson.Basic.t;
     }
   | Tool_output_error of {
       tool_call_id : string;
@@ -58,11 +58,11 @@ type t =
       url : string;
       media_type : string;
     }
-  | Message_metadata of { message_metadata : Yojson.Safe.t }
+  | Message_metadata of { message_metadata : Yojson.Basic.t }
   | Tool_input_error of {
       tool_call_id : string;
       tool_name : string;
-      input : Yojson.Safe.t;
+      input : Yojson.Basic.t;
       error_text : string;
     }
   | Tool_output_denied of { tool_call_id : string }
@@ -76,8 +76,8 @@ type t =
   | Data of {
       data_type : string;
       id : string option;
-      data : Yojson.Safe.t;
+      data : Yojson.Basic.t;
     }
 
 (** Serialize to JSON with camelCase field names matching the Vercel AI SDK. *)
-val to_yojson : t -> Yojson.Safe.t
+val to_json : t -> Yojson.Basic.t

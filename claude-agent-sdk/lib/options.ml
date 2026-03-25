@@ -26,7 +26,7 @@ type t = {
   continue_conversation : bool option;
   env : (string * string) list option;
   agents : (string * Types.agent_definition) list option;
-  mcp_servers : (string * Yojson.Safe.t) list option;
+  mcp_servers : (string * Yojson.Basic.t) list option;
 }
 
 let default =

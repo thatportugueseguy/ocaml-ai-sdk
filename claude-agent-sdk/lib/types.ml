@@ -1,26 +1,34 @@
+open Melange_json.Primitives
+
+(* Identity serializers for raw JSON fields (Yojson.Basic.t) *)
+type json_value = Yojson.Basic.t
+
+let json_value_to_json (x : json_value) : Yojson.Basic.t = x
+let json_value_of_json (x : Yojson.Basic.t) : json_value = x
+
 (* Content blocks *)
 
-type text_block = { text : string } [@@deriving yojson { strict = false }]
+type text_block = { text : string } [@@json.allow_extra_fields] [@@deriving json]
 
 type thinking_block = {
   thinking : string;
   signature : string;
 }
-[@@deriving yojson { strict = false }]
+[@@json.allow_extra_fields] [@@deriving json]
 
 type tool_use_block = {
   id : string;
   name : string;
-  input : Yojson.Safe.t; [@to_yojson fun x -> x] [@of_yojson fun x -> Ok x]
+  input : json_value;
 }
-[@@deriving yojson { strict = false }]
+[@@json.allow_extra_fields] [@@deriving json]
 
 type tool_result_block = {
   tool_use_id : string;
   content : string;
-  is_error : bool; [@default false]
+  is_error : bool; [@json.default false]
 }
-[@@deriving yojson { strict = false }]
+[@@json.allow_extra_fields] [@@deriving json]
 
 type content_block =
   | Text of text_block
@@ -28,35 +36,91 @@ type content_block =
   | Tool_use of tool_use_block
   | Tool_result of tool_result_block
 
-let add_type_field type_name json =
-  match json with
-  | `Assoc fields -> `Assoc (("type", `String type_name) :: fields)
-  | other -> other
+(* Wire types for serialization — include the "type" discriminator field *)
 
-let content_block_to_yojson = function
-  | Text b -> add_type_field "text" (text_block_to_yojson b)
-  | Thinking b -> add_type_field "thinking" (thinking_block_to_yojson b)
-  | Tool_use b -> add_type_field "tool_use" (tool_use_block_to_yojson b)
-  | Tool_result b -> add_type_field "tool_result" (tool_result_block_to_yojson b)
+type text_block_wire = {
+  type_ : string; [@json.key "type"]
+  text : string;
+}
+[@@deriving to_json]
 
-let content_block_of_yojson json =
-  match Yojson.Safe.Util.(member "type" json |> to_string) with
-  | "text" -> text_block_of_yojson json |> Result.map (fun b -> Text b)
-  | "thinking" -> thinking_block_of_yojson json |> Result.map (fun b -> Thinking b)
-  | "tool_use" -> tool_use_block_of_yojson json |> Result.map (fun b -> Tool_use b)
-  | "tool_result" -> tool_result_block_of_yojson json |> Result.map (fun b -> Tool_result b)
-  | other -> Error ("unknown content block type: " ^ other)
-  | exception _ -> Error "missing type field in content block"
+type thinking_block_wire = {
+  type_ : string; [@json.key "type"]
+  thinking : string;
+  signature : string;
+}
+[@@deriving to_json]
+
+type tool_use_block_wire = {
+  type_ : string; [@json.key "type"]
+  id : string;
+  name : string;
+  input : json_value;
+}
+[@@deriving to_json]
+
+type tool_result_block_wire = {
+  type_ : string; [@json.key "type"]
+  tool_use_id : string;
+  content : string;
+  is_error : bool; [@json.default false]
+}
+[@@deriving to_json]
+
+(* Flat wire type for deserialization — all fields optional except discriminator *)
+type content_block_wire = {
+  type_ : string; [@json.key "type"]
+  text : string option; [@json.default None]
+  thinking : string option; [@json.default None]
+  signature : string option; [@json.default None]
+  id : string option; [@json.default None]
+  name : string option; [@json.default None]
+  input : json_value option; [@json.default None]
+  tool_use_id : string option; [@json.default None]
+  content_str : string option; [@json.key "content"] [@json.default None]
+  is_error : bool; [@json.default false]
+}
+[@@json.allow_extra_fields] [@@deriving of_json]
+
+let content_block_to_json = function
+  | Text { text } -> text_block_wire_to_json { type_ = "text"; text }
+  | Thinking { thinking; signature } ->
+    thinking_block_wire_to_json { type_ = "thinking"; thinking; signature }
+  | Tool_use { id; name; input } ->
+    tool_use_block_wire_to_json { type_ = "tool_use"; id; name; input }
+  | Tool_result { tool_use_id; content; is_error } ->
+    tool_result_block_wire_to_json { type_ = "tool_result"; tool_use_id; content; is_error }
+
+let content_block_of_json json =
+  let w = content_block_wire_of_json json in
+  match w.type_ with
+  | "text" ->
+    (match w.text with
+    | Some text -> Text { text }
+    | None -> failwith "text block missing 'text' field")
+  | "thinking" ->
+    (match w.thinking, w.signature with
+    | Some thinking, Some signature -> Thinking { thinking; signature }
+    | _ -> failwith "thinking block missing required fields")
+  | "tool_use" ->
+    (match w.id, w.name, w.input with
+    | Some id, Some name, Some input -> Tool_use { id; name; input }
+    | _ -> failwith "tool_use block missing required fields")
+  | "tool_result" ->
+    (match w.tool_use_id, w.content_str with
+    | Some tool_use_id, Some content -> Tool_result { tool_use_id; content; is_error = w.is_error }
+    | _ -> failwith "tool_result block missing required fields")
+  | other -> failwith ("unknown content block type: " ^ other)
 
 (* Usage *)
 
 type usage = {
-  input_tokens : int; [@default 0]
-  output_tokens : int; [@default 0]
-  cache_read_input_tokens : int; [@default 0]
-  cache_creation_input_tokens : int; [@default 0]
+  input_tokens : int; [@json.default 0]
+  output_tokens : int; [@json.default 0]
+  cache_read_input_tokens : int; [@json.default 0]
+  cache_creation_input_tokens : int; [@json.default 0]
 }
-[@@deriving yojson { strict = false }]
+[@@json.allow_extra_fields] [@@deriving json]
 
 (* API message (nested inside assistant messages) *)
 
@@ -65,92 +129,92 @@ type api_message = {
   model : string;
   role : string;
   content : content_block list;
-  stop_reason : string option; [@default None]
+  stop_reason : string option; [@json.default None]
   usage : usage;
 }
-[@@deriving yojson { strict = false }]
+[@@json.allow_extra_fields] [@@deriving json]
 
 (* Top-level message types *)
 
 type system_message = {
   subtype : string;
-  session_id : string option; [@default None]
-  cwd : string option; [@default None]
-  tools : string list; [@default []]
-  model : string option; [@default None]
-  permission_mode : string option; [@default None] [@key "permissionMode"]
-  claude_code_version : string option; [@default None]
-  uuid : string option; [@default None]
+  session_id : string option; [@json.default None]
+  cwd : string option; [@json.default None]
+  tools : string list; [@json.default []]
+  model : string option; [@json.default None]
+  permission_mode : string option; [@json.default None] [@json.key "permissionMode"]
+  claude_code_version : string option; [@json.default None]
+  uuid : string option; [@json.default None]
 }
-[@@deriving yojson { strict = false }]
+[@@json.allow_extra_fields] [@@deriving json]
 
 type assistant_message = {
   message : api_message;
-  parent_tool_use_id : string option; [@default None]
-  session_id : string option; [@default None]
-  uuid : string option; [@default None]
+  parent_tool_use_id : string option; [@json.default None]
+  session_id : string option; [@json.default None]
+  uuid : string option; [@json.default None]
 }
-[@@deriving yojson { strict = false }]
+[@@json.allow_extra_fields] [@@deriving json]
 
 type result_message = {
   subtype : string;
-  is_error : bool; [@default false]
-  duration_ms : float option; [@default None]
-  duration_api_ms : float option; [@default None]
-  num_turns : int option; [@default None]
-  session_id : string option; [@default None]
-  total_cost_usd : float option; [@default None]
-  result : string option; [@default None]
-  uuid : string option; [@default None]
+  is_error : bool; [@json.default false]
+  duration_ms : float option; [@json.default None]
+  duration_api_ms : float option; [@json.default None]
+  num_turns : int option; [@json.default None]
+  session_id : string option; [@json.default None]
+  total_cost_usd : float option; [@json.default None]
+  result : string option; [@json.default None]
+  uuid : string option; [@json.default None]
 }
-[@@deriving yojson { strict = false }]
+[@@json.allow_extra_fields] [@@deriving json]
 
 type user_message = {
-  content : Yojson.Safe.t; [@to_yojson fun x -> x] [@of_yojson fun x -> Ok x]
-  uuid : string option; [@default None]
-  parent_tool_use_id : string option; [@default None]
+  content : json_value;
+  uuid : string option; [@json.default None]
+  parent_tool_use_id : string option; [@json.default None]
 }
-[@@deriving yojson { strict = false }]
+[@@json.allow_extra_fields] [@@deriving json]
 
 (* Control protocol types *)
 
 type control_request = {
   request_id : string;
-  request : Yojson.Safe.t; [@to_yojson fun x -> x] [@of_yojson fun x -> Ok x]
+  request : json_value;
 }
-[@@deriving yojson { strict = false }]
+[@@json.allow_extra_fields] [@@deriving json]
 
 type control_response = {
   request_id : string;
-  error : string option; [@default None]
-  result : Yojson.Safe.t option;
-     [@default None]
-     [@to_yojson
+  error : string option; [@json.default None]
+  result : json_value option;
+     [@json.default None]
+     [@to_json
        fun x ->
          match x with
          | None -> `Null
          | Some v -> v]
-     [@of_yojson
+     [@of_json
        fun x ->
          match x with
-         | `Null -> Ok None
-         | v -> Ok (Some v)]
+         | `Null -> None
+         | v -> Some v]
 }
-[@@deriving yojson { strict = false }]
+[@@json.allow_extra_fields] [@@deriving json]
 
 (* Configuration types *)
 
 type agent_definition = {
   description : string;
-  prompt : string option; [@default None]
-  tools : string list option; [@default None]
-  model : string option; [@default None]
+  prompt : string option; [@json.default None]
+  tools : string list option; [@json.default None]
+  model : string option; [@json.default None]
 }
-[@@deriving yojson]
+[@@deriving json]
 
 type mcp_stdio_server = {
   command : string;
   args : string list;
-  env : (string * string) list option; [@default None]
+  env : (string * string) list option; [@json.default None]
 }
-[@@deriving yojson]
+[@@deriving json]

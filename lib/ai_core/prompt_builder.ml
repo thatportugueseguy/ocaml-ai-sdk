@@ -35,7 +35,7 @@ let append_assistant_and_tool_results ~messages ~assistant_content ~tool_results
         | Text { text } -> Ai_provider.Prompt.Text { text; provider_options = po }
         | Tool_call { tool_call_id; tool_name; args; _ } ->
           Ai_provider.Prompt.Tool_call
-            { id = tool_call_id; name = tool_name; args = Yojson.Safe.from_string args; provider_options = po }
+            { id = tool_call_id; name = tool_name; args = Yojson.Basic.from_string args; provider_options = po }
         | Reasoning { text; _ } -> Ai_provider.Prompt.Reasoning { text; provider_options = po }
         | File _ -> Ai_provider.Prompt.Text { text = "[file]"; provider_options = po })
       assistant_content
@@ -48,7 +48,7 @@ let append_assistant_and_tool_results ~messages ~assistant_content ~tool_results
           tool_name = tr.tool_name;
           result = tr.result;
           is_error = tr.is_error;
-          content = [ Result_text (Yojson.Safe.to_string tr.result) ];
+          content = [ Result_text (Yojson.Basic.to_string tr.result) ];
           provider_options = po;
         })
       tool_results

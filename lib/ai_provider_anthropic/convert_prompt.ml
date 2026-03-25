@@ -1,3 +1,5 @@
+open Melange_json.Primitives
+
 type image_source =
   | Base64_image of {
       media_type : string;
@@ -31,7 +33,7 @@ type anthropic_content =
   | A_tool_use of {
       id : string;
       name : string;
-      input : Yojson.Safe.t;
+      input : Yojson.Basic.t;
     }
   | A_tool_result of {
       tool_use_id : string;
@@ -121,7 +123,7 @@ let convert_tool_result (tr : Ai_provider.Prompt.tool_result) : anthropic_conten
     | [] ->
       (match tr.result with
       | `String s -> [ Tool_text s ]
-      | json -> [ Tool_text (Yojson.Safe.to_string json) ])
+      | json -> [ Tool_text (Yojson.Basic.to_string json) ])
     | _ -> content
   in
   A_tool_result { tool_use_id = tr.tool_call_id; content; is_error = tr.is_error }
@@ -161,94 +163,94 @@ let convert_messages messages =
 
 type cc = Cache_control.t
 
-let cc_to_yojson (cc : cc) =
+let cc_to_json (cc : cc) =
   match cc.Cache_control.cache_type with
   | Ephemeral -> `Assoc [ "type", `String "ephemeral" ]
 
 type image_source_base64_json = {
-  type_ : string; [@key "type"]
+  type_ : string; [@json.key "type"]
   media_type : string;
   data : string;
 }
-[@@deriving to_yojson]
+[@@deriving to_json]
 
 type image_source_url_json = {
-  type_ : string; [@key "type"]
+  type_ : string; [@json.key "type"]
   url : string;
 }
-[@@deriving to_yojson]
+[@@deriving to_json]
 
-let image_source_to_yojson = function
+let image_source_to_json = function
   | Base64_image { media_type; data } ->
-    image_source_base64_json_to_yojson { type_ = "base64"; media_type; data }
-  | Url_image { url } -> image_source_url_json_to_yojson { type_ = "url"; url }
+    image_source_base64_json_to_json { type_ = "base64"; media_type; data }
+  | Url_image { url } -> image_source_url_json_to_json { type_ = "url"; url }
 
 type text_content_json = {
-  type_ : string; [@key "type"]
+  type_ : string; [@json.key "type"]
   text : string;
-  cache_control : cc option; [@yojson.option]
+  cache_control : cc option; [@json.option]
 }
-[@@deriving to_yojson]
+[@@deriving to_json]
 
 type source_content_json = {
-  type_ : string; [@key "type"]
-  source : Yojson.Safe.t;
-  cache_control : cc option; [@yojson.option]
+  type_ : string; [@json.key "type"]
+  source : Melange_json.t;
+  cache_control : cc option; [@json.option]
 }
-[@@deriving to_yojson]
+[@@deriving to_json]
 
 type tool_use_json = {
-  type_ : string; [@key "type"]
+  type_ : string; [@json.key "type"]
   id : string;
   name : string;
-  input : Yojson.Safe.t;
+  input : Melange_json.t;
 }
-[@@deriving to_yojson]
+[@@deriving to_json]
 
 type tool_result_json = {
-  type_ : string; [@key "type"]
+  type_ : string; [@json.key "type"]
   tool_use_id : string;
-  content : Yojson.Safe.t list;
+  content : Melange_json.t list;
   is_error : bool;
 }
-[@@deriving to_yojson]
+[@@deriving to_json]
 
 type thinking_json = {
-  type_ : string; [@key "type"]
+  type_ : string; [@json.key "type"]
   thinking : string;
   signature : string;
 }
-[@@deriving to_yojson]
+[@@deriving to_json]
 
-let tool_result_content_to_yojson = function
-  | Tool_text s -> text_content_json_to_yojson { type_ = "text"; text = s; cache_control = None }
+let tool_result_content_to_json = function
+  | Tool_text s -> text_content_json_to_json { type_ = "text"; text = s; cache_control = None }
   | Tool_image { source } ->
-    source_content_json_to_yojson { type_ = "image"; source = image_source_to_yojson source; cache_control = None }
+    source_content_json_to_json { type_ = "image"; source = image_source_to_json source; cache_control = None }
 
-let anthropic_content_to_yojson = function
-  | A_text { text; cache_control } -> text_content_json_to_yojson { type_ = "text"; text; cache_control }
+let anthropic_content_to_json = function
+  | A_text { text; cache_control } -> text_content_json_to_json { type_ = "text"; text; cache_control }
   | A_image { source; cache_control } ->
-    source_content_json_to_yojson { type_ = "image"; source = image_source_to_yojson source; cache_control }
+    source_content_json_to_json { type_ = "image"; source = image_source_to_json source; cache_control }
   | A_document { source; cache_control } ->
     let (Base64_document { media_type; data }) = source in
-    let source_json = image_source_base64_json_to_yojson { type_ = "base64"; media_type; data } in
-    source_content_json_to_yojson { type_ = "document"; source = source_json; cache_control }
-  | A_tool_use { id; name; input } -> tool_use_json_to_yojson { type_ = "tool_use"; id; name; input }
+    let source_json = image_source_base64_json_to_json { type_ = "base64"; media_type; data } in
+    source_content_json_to_json { type_ = "document"; source = source_json; cache_control }
+  | A_tool_use { id; name; input } -> tool_use_json_to_json { type_ = "tool_use"; id; name; input }
   | A_tool_result { tool_use_id; content; is_error } ->
-    let content_json = List.map tool_result_content_to_yojson content in
-    tool_result_json_to_yojson { type_ = "tool_result"; tool_use_id; content = content_json; is_error }
-  | A_thinking { thinking; signature } -> thinking_json_to_yojson { type_ = "thinking"; thinking; signature }
+    let content_json = List.map tool_result_content_to_json content in
+    tool_result_json_to_json { type_ = "tool_result"; tool_use_id; content = content_json; is_error }
+  | A_thinking { thinking; signature } -> thinking_json_to_json { type_ = "thinking"; thinking; signature }
 
 type message_json = {
   role : string;
-  content : Yojson.Safe.t list;
+  content : Melange_json.t list;
 }
-[@@deriving to_yojson]
+[@@deriving to_json]
 
-let anthropic_message_to_yojson ({ role; content } : anthropic_message) =
+let anthropic_message_to_json ({ role; content } : anthropic_message) =
   let role_str =
     match role with
     | `User -> "user"
     | `Assistant -> "assistant"
   in
-  message_json_to_yojson { role = role_str; content = List.map anthropic_content_to_yojson content }
+  message_json_to_json { role = role_str; content = List.map anthropic_content_to_json content }

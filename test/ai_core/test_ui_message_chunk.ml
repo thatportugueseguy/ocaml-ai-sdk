@@ -1,4 +1,4 @@
-let json_str chunk = Ai_core.Ui_message_chunk.to_yojson chunk |> Yojson.Safe.to_string
+let json_str chunk = Ai_core.Ui_message_chunk.to_json chunk |> Yojson.Basic.to_string
 
 (* Message lifecycle *)
 let test_start () =

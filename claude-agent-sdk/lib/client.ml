@@ -5,7 +5,7 @@ type t = {
   switch : Lwt_switch.t;
   mutable transport : Transport.t option;
   mutable session_id_ : string option;
-  pending_requests : (string, Yojson.Safe.t Lwt.u) Hashtbl.t;
+  pending_requests : (string, Yojson.Basic.t Lwt.u) Hashtbl.t;
   mutable msg_stream : Message.t Lwt_stream.t;
   mutable msg_push : Message.t option -> unit;
   mutable reader_running : bool;

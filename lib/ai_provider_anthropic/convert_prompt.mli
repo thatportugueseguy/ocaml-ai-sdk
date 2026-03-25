@@ -35,7 +35,7 @@ type anthropic_content =
   | A_tool_use of {
       id : string;
       name : string;
-      input : Yojson.Safe.t;
+      input : Yojson.Basic.t;
     }
   | A_tool_result of {
       tool_use_id : string;
@@ -60,7 +60,7 @@ val extract_system : Ai_provider.Prompt.message list -> string option * Ai_provi
 val convert_messages : Ai_provider.Prompt.message list -> anthropic_message list
 
 (** Serialize a content block to JSON. *)
-val anthropic_content_to_yojson : anthropic_content -> Yojson.Safe.t
+val anthropic_content_to_json : anthropic_content -> Yojson.Basic.t
 
 (** Serialize a message to JSON. *)
-val anthropic_message_to_yojson : anthropic_message -> Yojson.Safe.t
+val anthropic_message_to_json : anthropic_message -> Yojson.Basic.t

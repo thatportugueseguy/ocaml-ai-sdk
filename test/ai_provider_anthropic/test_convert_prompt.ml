@@ -1,3 +1,15 @@
+open Melange_json.Primitives
+
+type content_json = {
+  type_ : string; [@json.key "type"]
+  text : string option; [@json.default None]
+  cache_control : cache_control_json option; [@json.default None]
+} [@@json.allow_extra_fields] [@@deriving of_json]
+
+and cache_control_json = {
+  cc_type : string; [@json.key "type"]
+} [@@deriving of_json]
+
 let po = Ai_provider.Provider_options.empty
 
 (* extract_system tests *)
@@ -117,19 +129,19 @@ let test_empty_messages () =
 
 let test_text_to_json () =
   let content = Ai_provider_anthropic.Convert_prompt.A_text { text = "hello"; cache_control = None } in
-  let json = Ai_provider_anthropic.Convert_prompt.anthropic_content_to_yojson content in
-  let text = Yojson.Safe.Util.(member "text" json |> to_string) in
-  Alcotest.(check string) "text" "hello" text;
-  let typ = Yojson.Safe.Util.(member "type" json |> to_string) in
-  Alcotest.(check string) "type" "text" typ
+  let json = Ai_provider_anthropic.Convert_prompt.anthropic_content_to_json content in
+  let r = content_json_of_json json in
+  Alcotest.(check (option string)) "text" (Some "hello") r.text;
+  Alcotest.(check string) "type" "text" r.type_
 
 let test_text_with_cache_control () =
   let cc = Ai_provider_anthropic.Cache_control.ephemeral in
   let content = Ai_provider_anthropic.Convert_prompt.A_text { text = "cached"; cache_control = Some cc } in
-  let json = Ai_provider_anthropic.Convert_prompt.anthropic_content_to_yojson content in
-  let cc_json = Yojson.Safe.Util.member "cache_control" json in
-  let cc_type = Yojson.Safe.Util.(member "type" cc_json |> to_string) in
-  Alcotest.(check string) "cache type" "ephemeral" cc_type
+  let json = Ai_provider_anthropic.Convert_prompt.anthropic_content_to_json content in
+  let r = content_json_of_json json in
+  match r.cache_control with
+  | None -> Alcotest.fail "expected cache_control"
+  | Some cc_r -> Alcotest.(check string) "cache type" "ephemeral" cc_r.cc_type
 
 let () =
   Alcotest.run "Convert_prompt"

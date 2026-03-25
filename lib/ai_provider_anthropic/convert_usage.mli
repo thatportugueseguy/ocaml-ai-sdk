@@ -8,7 +8,10 @@ type anthropic_usage = {
 }
 
 (** Parse Anthropic usage from JSON. *)
-val anthropic_usage_of_yojson : Yojson.Safe.t -> (anthropic_usage, string) result
+val anthropic_usage_of_json : Yojson.Basic.t -> anthropic_usage
+
+(** Convert Anthropic usage to JSON. *)
+val anthropic_usage_to_json : anthropic_usage -> Yojson.Basic.t
 
 (** Convert to SDK Usage. *)
 val to_usage : anthropic_usage -> Ai_provider.Usage.t

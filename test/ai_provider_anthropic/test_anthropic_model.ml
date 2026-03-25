@@ -1,33 +1,41 @@
+open Melange_json.Primitives
+
+type request_body_json = {
+  system : string option; [@json.default None]
+} [@@json.allow_extra_fields] [@@deriving of_json]
+
 let mock_text_response =
-  `Assoc
-    [
-      "id", `String "msg_test";
-      "content", `List [ `Assoc [ "type", `String "text"; "text", `String "Hello from Claude!" ] ];
-      "model", `String "claude-sonnet-4-6";
-      "stop_reason", `String "end_turn";
-      "usage", `Assoc [ "input_tokens", `Int 10; "output_tokens", `Int 5 ];
-    ]
+  Ai_provider_anthropic.Convert_response.anthropic_response_json_to_json
+    {
+      id = Some "msg_test";
+      model = Some "claude-sonnet-4-6";
+      content =
+        [ { type_ = "text"; text = Some "Hello from Claude!"; id = None; name = None; input = None; thinking = None; signature = None } ];
+      stop_reason = Some "end_turn";
+      usage = { input_tokens = 10; output_tokens = 5; cache_read_input_tokens = None; cache_creation_input_tokens = None };
+    }
 
 let mock_tool_response =
-  `Assoc
-    [
-      "id", `String "msg_tool";
-      ( "content",
-        `List
-          [
-            `Assoc [ "type", `String "text"; "text", `String "Let me search." ];
-            `Assoc
-              [
-                "type", `String "tool_use";
-                "id", `String "tc_1";
-                "name", `String "search";
-                "input", `Assoc [ "query", `String "test" ];
-              ];
-          ] );
-      "model", `String "claude-sonnet-4-6";
-      "stop_reason", `String "tool_use";
-      "usage", `Assoc [ "input_tokens", `Int 20; "output_tokens", `Int 15 ];
-    ]
+  Ai_provider_anthropic.Convert_response.anthropic_response_json_to_json
+    {
+      id = Some "msg_tool";
+      model = Some "claude-sonnet-4-6";
+      content =
+        [
+          { type_ = "text"; text = Some "Let me search."; id = None; name = None; input = None; thinking = None; signature = None };
+          {
+            type_ = "tool_use";
+            text = None;
+            id = Some "tc_1";
+            name = Some "search";
+            input = Some (`Assoc [ "query", `String "test" ]);
+            thinking = None;
+            signature = None;
+          };
+        ];
+      stop_reason = Some "tool_use";
+      usage = { input_tokens = 20; output_tokens = 15; cache_read_input_tokens = None; cache_creation_input_tokens = None };
+    }
 
 let make_config response =
   let fetch ~url:_ ~headers:_ ~body:_ = Lwt.return response in
@@ -64,12 +72,10 @@ let test_generate_with_system () =
   let fetch_called = ref false in
   let fetch ~url:_ ~headers:_ ~body =
     fetch_called := true;
-    let json = Yojson.Safe.from_string body in
-    let system = Yojson.Safe.Util.(member "system" json) in
+    let json = Yojson.Basic.from_string body in
+    let r = request_body_json_of_json json in
     (* Verify system was included in request *)
-    (match system with
-    | `String s -> Alcotest.(check string) "system in body" "Be helpful" s
-    | _ -> Alcotest.fail "expected system string");
+    Alcotest.(check (option string)) "system in body" (Some "Be helpful") r.system;
     Lwt.return mock_text_response
   in
   let config = Ai_provider_anthropic.Config.create ~api_key:"sk-test" ~fetch () in
