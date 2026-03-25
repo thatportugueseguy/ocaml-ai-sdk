@@ -10,7 +10,8 @@
   test_server_handler
   test_e2e
   test_sse_snapshots
-  test_json_schema_validator)
+  test_json_schema_validator
+  test_partial_json)
  (libraries
   ai_provider
   ai_provider_anthropic
