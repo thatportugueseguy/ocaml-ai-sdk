@@ -1,0 +1,35 @@
+(** Structured output API for generate_text and stream_text.
+
+    Matches the Vercel AI SDK v6 Output API: [Output.text], [Output.object_],
+    [Output.enum]. Controls model response format and adds parsing/validation. *)
+
+(** An output specification parameterized by the parsed output type.
+    - ['complete] is the type returned by [parse_complete] (final validated output)
+    - ['partial] is the type returned by [parse_partial] (streaming partial output) *)
+type ('complete, 'partial) t = {
+  name : string;
+  response_format : Ai_provider.Mode.json_schema option;
+    (** Schema to pass to the provider via [Mode.Object_json].
+          [None] means text mode (no JSON instruction). *)
+  parse_complete : string -> ('complete, string) result;
+    (** Parse and validate the complete model response text.
+          Returns [Error msg] if JSON parsing or schema validation fails. *)
+  parse_partial : string -> 'partial option;
+    (** Parse a potentially incomplete response for streaming.
+          Returns [None] if text is empty or unparseable. No schema validation. *)
+}
+
+(** Default text output — no structured format, returns raw text. *)
+val text : (string, string) t
+
+(** Object output — model produces JSON matching the given schema.
+    [name] and [description] are passed to the provider for context.
+    Complete output is validated against the schema.
+    Partial output uses repair-and-parse (no validation). *)
+val object_ : name:string -> schema:Yojson.Basic.t -> ?description:string -> unit -> (Yojson.Basic.t, Yojson.Basic.t) t
+
+(** Enum output — model picks one of the given string options.
+    Wraps in [{"result":"..."}] envelope for the model, unwraps on parse.
+    Complete output validates the choice is in the allowed list.
+    Partial output returns the partial JSON as-is. *)
+val enum : name:string -> string list -> (Yojson.Basic.t, Yojson.Basic.t) t
