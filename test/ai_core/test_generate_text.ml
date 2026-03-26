@@ -210,6 +210,18 @@ let test_generate_with_invalid_output () =
   | None -> ()
   | Some _ -> fail "expected None for invalid"
 
+let test_generate_with_array_output () =
+  let element_schema =
+    Yojson.Basic.from_string {|{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}|}
+  in
+  let output = Ai_core.Output.array ~name:"cities" ~element_schema () in
+  let model = make_json_model {|{"elements":[{"city":"Paris"},{"city":"London"}]}|} in
+  let result = Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"test" ~output ()) in
+  match result.output with
+  | Some (`List [ `Assoc _; `Assoc _ ]) -> ()
+  | Some json -> fail (Printf.sprintf "unexpected: %s" (Yojson.Basic.to_string json))
+  | None -> fail "expected output"
+
 let test_generate_without_output () =
   let model = make_text_model "Hello!" in
   let result = Lwt_main.run (Ai_core.Generate_text.generate_text ~model ~prompt:"test" ()) in
@@ -246,6 +258,7 @@ let () =
         [
           test_case "object_output" `Quick test_generate_with_object_output;
           test_case "enum_output" `Quick test_generate_with_enum_output;
+          test_case "array_output" `Quick test_generate_with_array_output;
           test_case "invalid_output" `Quick test_generate_with_invalid_output;
           test_case "no_output" `Quick test_generate_without_output;
         ] );

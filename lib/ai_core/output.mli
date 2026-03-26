@@ -1,7 +1,8 @@
 (** Structured output API for generate_text and stream_text.
 
     Matches the Vercel AI SDK v6 Output API: [Output.text], [Output.object_],
-    [Output.enum]. Controls model response format and adds parsing/validation. *)
+    [Output.array], [Output.choice]. Controls model response format and adds
+    parsing/validation. *)
 
 (** An output specification parameterized by the parsed output type.
     - ['complete] is the type returned by [parse_complete] (final validated output)
@@ -36,8 +37,20 @@ val text : (string, string) t
     Partial output uses repair-and-parse (no validation). *)
 val object_ : name:string -> schema:Yojson.Basic.t -> ?description:string -> unit -> (Yojson.Basic.t, Yojson.Basic.t) t
 
-(** Enum output — model picks one of the given string options.
+(** Array output — model produces an array of elements matching the schema.
+    Wraps in [{"elements":[...]}] envelope for the model, unwraps on parse.
+    Complete output validates every element against the schema.
+    Partial output drops the last element on repaired parses and
+    silently skips invalid elements. *)
+val array :
+  name:string -> element_schema:Yojson.Basic.t -> ?description:string -> unit -> (Yojson.Basic.t, Yojson.Basic.t) t
+
+(** Choice output — model picks one of the given string options.
     Wraps in [{"result":"..."}] envelope for the model, unwraps on parse.
     Complete output validates the choice is in the allowed list.
-    Partial output returns the partial JSON as-is. *)
+    Partial output uses prefix matching: on repaired parses, only returns
+    when exactly one option matches the prefix (unambiguous). *)
+val choice : name:string -> string list -> (Yojson.Basic.t, Yojson.Basic.t) t
+
+(** @deprecated Use [choice] instead. Alias kept for backwards compatibility. *)
 val enum : name:string -> string list -> (Yojson.Basic.t, Yojson.Basic.t) t
