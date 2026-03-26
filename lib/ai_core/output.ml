@@ -105,9 +105,9 @@ let array ~name ~element_schema ?description:_ () =
         let candidates =
           match status with
           | Partial_json.Repaired ->
-            (match elts with
-            | [] -> []
-            | _ -> List.rev (List.tl (List.rev elts)))
+            (match List.rev elts with
+            | _ :: rest -> List.rev rest
+            | [] -> [])
           | Partial_json.Successful -> elts
         in
         let valid = List.filter validate_element candidates in
