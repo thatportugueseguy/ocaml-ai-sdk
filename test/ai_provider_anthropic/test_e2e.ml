@@ -7,11 +7,11 @@ open Alcotest
 type thinking_json = {
   type_ : string; [@json.key "type"]
   budget_tokens : int;
-} [@@deriving of_json]
+}
+[@@deriving of_json]
 
-type request_with_thinking = {
-  thinking : thinking_json option; [@json.default None]
-} [@@json.allow_extra_fields] [@@deriving of_json]
+type request_with_thinking = { thinking : thinking_json option [@json.default None] }
+[@@json.allow_extra_fields] [@@deriving of_json]
 
 (* Mock responses *)
 let mock_text_response =

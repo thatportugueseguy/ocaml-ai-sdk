@@ -181,8 +181,7 @@ type image_source_url_json = {
 [@@deriving to_json]
 
 let image_source_to_json = function
-  | Base64_image { media_type; data } ->
-    image_source_base64_json_to_json { type_ = "base64"; media_type; data }
+  | Base64_image { media_type; data } -> image_source_base64_json_to_json { type_ = "base64"; media_type; data }
   | Url_image { url } -> image_source_url_json_to_json { type_ = "url"; url }
 
 type text_content_json = {

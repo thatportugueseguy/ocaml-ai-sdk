@@ -67,7 +67,8 @@ let handle_cors_preflight _conn _req _body =
   let response = Cohttp.Response.make ~status:`No_content ~headers () in
   Lwt.return (response, Cohttp_lwt.Body.empty)
 
-let handle_chat ~model ?tools ?max_steps ?system ?output ?send_reasoning ?(cors = true) ?provider_options _conn _req body =
+let handle_chat ~model ?tools ?max_steps ?system ?output ?send_reasoning ?(cors = true) ?provider_options _conn _req
+  body =
   let%lwt body_str = Cohttp_lwt.Body.to_string body in
   let body_json =
     try Ok (Yojson.Basic.from_string body_str)

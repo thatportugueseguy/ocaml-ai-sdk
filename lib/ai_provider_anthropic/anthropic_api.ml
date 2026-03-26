@@ -39,8 +39,7 @@ let make_request_body ~model ~messages ?system ?tools ?tool_choice ?max_tokens ?
   in
   let thinking_json =
     match thinking with
-    | Some t when t.Thinking.enabled ->
-      Some { type_ = "enabled"; budget_tokens = Thinking.to_int t.budget_tokens }
+    | Some t when t.Thinking.enabled -> Some { type_ = "enabled"; budget_tokens = Thinking.to_int t.budget_tokens }
     | Some _ | None -> None
   in
   let stream =

@@ -32,13 +32,10 @@ let test_model_id_opus_4_6 () =
   (check string) "opus 4.6" "claude-opus-4-6" (Ai_provider_anthropic.Model_catalog.to_model_id Claude_opus_4_6)
 
 let test_model_id_sonnet_4_6 () =
-  (check string)
-    "sonnet 4.6" "claude-sonnet-4-6"
-    (Ai_provider_anthropic.Model_catalog.to_model_id Claude_sonnet_4_6)
+  (check string) "sonnet 4.6" "claude-sonnet-4-6" (Ai_provider_anthropic.Model_catalog.to_model_id Claude_sonnet_4_6)
 
 let test_model_id_haiku_4_5 () =
-  (check string)
-    "haiku 4.5" "claude-haiku-4-5-20251001"
+  (check string) "haiku 4.5" "claude-haiku-4-5-20251001"
     (Ai_provider_anthropic.Model_catalog.to_model_id Claude_haiku_4_5)
 
 let test_of_model_id_exact () =

@@ -86,8 +86,7 @@ let test_sse_output () =
   in
   (* Each line should start with "data: " *)
   List.iter
-    (fun line ->
-      (check bool) "starts with data:" true (String.length line >= 6 && String.sub line 0 6 = "data: "))
+    (fun line -> (check bool) "starts with data:" true (String.length line >= 6 && String.sub line 0 6 = "data: "))
     sse_lines;
   (* Last should be [DONE] *)
   let last = List.nth sse_lines (List.length sse_lines - 1) in
@@ -125,13 +124,25 @@ let test_reasoning_included () =
   (* Should have Reasoning_start + Reasoning_delta + Reasoning_end *)
   (check bool) "reasoning chunks present when enabled" true (List.length reasoning_chunks >= 3);
   let has_start =
-    List.exists (function Ai_core.Ui_message_chunk.Reasoning_start _ -> true | _ -> false) ui_chunks
+    List.exists
+      (function
+        | Ai_core.Ui_message_chunk.Reasoning_start _ -> true
+        | _ -> false)
+      ui_chunks
   in
   let has_delta =
-    List.exists (function Ai_core.Ui_message_chunk.Reasoning_delta _ -> true | _ -> false) ui_chunks
+    List.exists
+      (function
+        | Ai_core.Ui_message_chunk.Reasoning_delta _ -> true
+        | _ -> false)
+      ui_chunks
   in
   let has_end =
-    List.exists (function Ai_core.Ui_message_chunk.Reasoning_end _ -> true | _ -> false) ui_chunks
+    List.exists
+      (function
+        | Ai_core.Ui_message_chunk.Reasoning_end _ -> true
+        | _ -> false)
+      ui_chunks
   in
   (check bool) "has reasoning_start" true has_start;
   (check bool) "has reasoning_delta" true has_delta;

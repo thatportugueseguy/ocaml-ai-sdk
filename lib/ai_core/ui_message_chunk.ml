@@ -207,8 +207,7 @@ type data_json = {
 [@@deriving to_json]
 
 let to_json = function
-  | Start { message_id; message_metadata } ->
-    start_json_to_json { type_ = "start"; message_id; message_metadata }
+  | Start { message_id; message_metadata } -> start_json_to_json { type_ = "start"; message_id; message_metadata }
   | Finish { finish_reason; message_metadata } ->
     finish_json_to_json
       {
@@ -235,8 +234,7 @@ let to_json = function
     tool_output_available_json_to_json { type_ = "tool-output-available"; tool_call_id; output }
   | Tool_output_error { tool_call_id; error_text } ->
     tool_output_error_json_to_json { type_ = "tool-output-error"; tool_call_id; error_text }
-  | Source_url { source_id; url; title } ->
-    source_url_json_to_json { type_ = "source-url"; source_id; url; title }
+  | Source_url { source_id; url; title } -> source_url_json_to_json { type_ = "source-url"; source_id; url; title }
   | File { url; media_type } -> file_json_to_json { type_ = "file"; url; media_type }
   | Message_metadata { message_metadata } ->
     message_metadata_json_to_json { type_ = "message-metadata"; message_metadata }
@@ -247,5 +245,4 @@ let to_json = function
   | Source_document { source_id; media_type; title; filename } ->
     source_document_json_to_json { type_ = "source-document"; source_id; media_type; title; filename }
   | Error { error_text } -> error_json_to_json { type_ = "error"; error_text }
-  | Data { data_type; id; data } ->
-    data_json_to_json { type_ = Printf.sprintf "data-%s" data_type; id; data }
+  | Data { data_type; id; data } -> data_json_to_json { type_ = Printf.sprintf "data-%s" data_type; id; data }

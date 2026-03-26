@@ -234,7 +234,8 @@ let close t =
     let%lwt () = end_input t in
     push_none t;
     let%lwt _pid, status = Lwt_unix.waitpid [] t.child_pid in
-    log#info "Transport closed with status: %s" (match status with
+    log#info "Transport closed with status: %s"
+      (match status with
       | Unix.WEXITED n -> Printf.sprintf "exited(%d)" n
       | Unix.WSIGNALED n -> Printf.sprintf "signaled(%d)" n
       | Unix.WSTOPPED n -> Printf.sprintf "stopped(%d)" n);

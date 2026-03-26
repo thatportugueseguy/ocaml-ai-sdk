@@ -43,13 +43,15 @@ let prepare_request ~model ~stream (opts : Ai_provider.Call_options.t) =
     match opts.mode with
     | Object_json (Some { name; schema }) ->
       Printf.sprintf
-        "Respond ONLY with a JSON object matching this schema (name: %s):\n%s\n\n\
-         Do not include any other text, markdown formatting, or code blocks. Output raw JSON only." name
-        (Yojson.Basic.pretty_to_string schema)
+        "Respond ONLY with a JSON object matching this schema (name: %s):\n\
+         %s\n\n\
+         Do not include any other text, markdown formatting, or code blocks. Output raw JSON only."
+        name (Yojson.Basic.pretty_to_string schema)
       |> append_instruction
     | Object_json None ->
       append_instruction
-        "Respond ONLY with valid JSON. Do not include any other text, markdown formatting, or code blocks. Output raw JSON only."
+        "Respond ONLY with valid JSON. Do not include any other text, markdown formatting, or code blocks. Output raw \
+         JSON only."
     | Regular | Object_tool _ -> system
   in
   let tools, tool_choice = Convert_tools.convert_tools ~tools:opts.tools ~tool_choice:opts.tool_choice in

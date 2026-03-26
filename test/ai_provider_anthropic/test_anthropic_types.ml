@@ -23,8 +23,8 @@ let test_budget_zero () =
   | Error _ -> ()
 
 let test_budget_exn_raises () =
-  check_raises "raises Invalid_argument" (Invalid_argument "thinking budget must be >= 1024, got 512")
-    (fun () -> ignore (Ai_provider_anthropic.Thinking.budget_exn 512 : Ai_provider_anthropic.Thinking.budget_tokens))
+  check_raises "raises Invalid_argument" (Invalid_argument "thinking budget must be >= 1024, got 512") (fun () ->
+    ignore (Ai_provider_anthropic.Thinking.budget_exn 512 : Ai_provider_anthropic.Thinking.budget_tokens))
 
 (* Cache_control tests *)
 

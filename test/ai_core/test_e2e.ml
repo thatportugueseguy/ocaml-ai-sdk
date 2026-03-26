@@ -7,7 +7,8 @@ type weather_result = {
   city : string;
   temperature : int;
   condition : string;
-} [@@json.allow_extra_fields] [@@deriving of_json]
+}
+[@@json.allow_extra_fields] [@@deriving of_json]
 
 (** End-to-end tests for the Core SDK.
 
@@ -21,8 +22,9 @@ type weather_result = {
 
 (* === Mock Anthropic Provider Responses === *)
 
-let no_cache : Ai_provider_anthropic.Convert_usage.anthropic_usage -> Ai_provider_anthropic.Convert_usage.anthropic_usage =
-  fun u -> { u with cache_read_input_tokens = None; cache_creation_input_tokens = None }
+let no_cache :
+  Ai_provider_anthropic.Convert_usage.anthropic_usage -> Ai_provider_anthropic.Convert_usage.anthropic_usage =
+ fun u -> { u with cache_read_input_tokens = None; cache_creation_input_tokens = None }
 
 let text_block text : Ai_provider_anthropic.Convert_response.content_block_json =
   { type_ = "text"; text = Some text; id = None; name = None; input = None; thinking = None; signature = None }
@@ -34,13 +36,15 @@ let mock_response ~id ~content ~stop_reason ~input_tokens ~output_tokens =
       model = Some "claude-sonnet-4-6";
       content;
       stop_reason = Some stop_reason;
-      usage = no_cache { input_tokens; output_tokens; cache_read_input_tokens = None; cache_creation_input_tokens = None };
+      usage =
+        no_cache { input_tokens; output_tokens; cache_read_input_tokens = None; cache_creation_input_tokens = None };
     }
 
 (* Simple text response *)
 let mock_text_response =
-  mock_response ~id:"msg_e2e_1" ~content:[ text_block "The capital of France is Paris." ] ~stop_reason:"end_turn"
-    ~input_tokens:15 ~output_tokens:8
+  mock_response ~id:"msg_e2e_1"
+    ~content:[ text_block "The capital of France is Paris." ]
+    ~stop_reason:"end_turn" ~input_tokens:15 ~output_tokens:8
 
 (* Tool call response *)
 let mock_tool_call_response =
@@ -62,8 +66,9 @@ let mock_tool_call_response =
 
 (* Follow-up text after tool *)
 let mock_followup_response =
-  mock_response ~id:"msg_e2e_3" ~content:[ text_block "The weather in Paris is 22C and sunny." ] ~stop_reason:"end_turn"
-    ~input_tokens:30 ~output_tokens:12
+  mock_response ~id:"msg_e2e_3"
+    ~content:[ text_block "The weather in Paris is 22C and sunny." ]
+    ~stop_reason:"end_turn" ~input_tokens:30 ~output_tokens:12
 
 (* Thinking response *)
 let mock_thinking_response =
@@ -334,9 +339,7 @@ let test_stream_sse_format () =
   (* All lines start with "data: " *)
   List.iter
     (fun line ->
-      (check bool)
-        "starts with data:" true
-        (String.length line >= 6 && String.equal (String.sub line 0 6) "data: "))
+      (check bool) "starts with data:" true (String.length line >= 6 && String.equal (String.sub line 0 6) "data: "))
     sse_lines;
   (* Last should be DONE *)
   let last = List.nth sse_lines (List.length sse_lines - 1) in
@@ -409,9 +412,7 @@ let test_stream_tool_sse_format () =
   (* All lines are SSE formatted *)
   List.iter
     (fun line ->
-      (check bool)
-        "starts with data:" true
-        (String.length line >= 6 && String.equal (String.sub line 0 6) "data: "))
+      (check bool) "starts with data:" true (String.length line >= 6 && String.equal (String.sub line 0 6) "data: "))
     sse_lines;
   (* Should have more than just start/finish (tool events too) *)
   (check bool) "has many SSE events" true (List.length sse_lines > 5);

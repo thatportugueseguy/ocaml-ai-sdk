@@ -44,7 +44,10 @@ let test_object_response_format () =
   match output.response_format with
   | Some { Ai_provider.Mode.name; schema } ->
     (check string) "name" "recipe" name;
-    (check bool) "has schema" true (match schema with `Null -> false | _ -> true)
+    (check bool) "has schema" true
+      (match schema with
+      | `Null -> false
+      | _ -> true)
   | None -> fail "expected response_format"
 
 let test_object_parse_complete_valid () =
