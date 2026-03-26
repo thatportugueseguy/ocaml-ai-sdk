@@ -119,10 +119,6 @@ let () =
           test_case "tool_use" `Quick test_parse_tool_use_response;
           test_case "thinking" `Quick test_parse_thinking_response;
         ] );
-      ( "error",
-        [
-          test_case "parsing" `Quick test_error_parsing;
-          test_case "retryable" `Quick test_is_retryable;
-        ] );
+      "error", [ test_case "parsing" `Quick test_error_parsing; test_case "retryable" `Quick test_is_retryable ];
       "usage", [ test_case "conversion" `Quick test_usage_conversion ];
     ]

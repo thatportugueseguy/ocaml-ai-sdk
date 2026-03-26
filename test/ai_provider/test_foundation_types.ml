@@ -57,19 +57,12 @@ let () =
     [
       ( "finish_reason",
         [
-          test_case "round_trip" `Quick test_finish_reason_round_trip;
-          test_case "other" `Quick test_finish_reason_other;
+          test_case "round_trip" `Quick test_finish_reason_round_trip; test_case "other" `Quick test_finish_reason_other;
         ] );
       ( "usage",
-        [
-          test_case "construction" `Quick test_usage_construction;
-          test_case "no_total" `Quick test_usage_no_total;
-        ] );
+        [ test_case "construction" `Quick test_usage_construction; test_case "no_total" `Quick test_usage_no_total ] );
       ( "warning",
-        [
-          test_case "unsupported" `Quick test_warning_unsupported;
-          test_case "other" `Quick test_warning_other;
-        ] );
+        [ test_case "unsupported" `Quick test_warning_unsupported; test_case "other" `Quick test_warning_other ] );
       ( "provider_error",
         [
           test_case "api_error" `Quick test_provider_error_api;

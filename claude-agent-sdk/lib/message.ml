@@ -1,8 +1,6 @@
 open Melange_json.Primitives
 
-type message_envelope = {
-  type_ : string; [@json.key "type"] [@json.default ""]
-}
+type message_envelope = { type_ : string [@json.key "type"] [@json.default ""] }
 [@@json.allow_extra_fields] [@@deriving of_json]
 
 type t =
@@ -15,10 +13,7 @@ type t =
   | Unknown of Yojson.Basic.t
 
 let of_json json =
-  let type_ =
-    try (message_envelope_of_json json).type_
-    with _ -> ""
-  in
+  let type_ = try (message_envelope_of_json json).type_ with _ -> "" in
   match type_ with
   | "system" -> (try System (Types.system_message_of_json json) with _ -> Unknown json)
   | "assistant" -> (try Assistant (Types.assistant_message_of_json json) with _ -> Unknown json)

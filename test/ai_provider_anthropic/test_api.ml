@@ -6,7 +6,8 @@ open Alcotest
 type thinking_json = {
   type_ : string; [@json.key "type"]
   budget_tokens : int;
-} [@@deriving of_json]
+}
+[@@deriving of_json]
 
 type request_fields = {
   model : string;
@@ -21,11 +22,10 @@ type request_fields = {
   tool_choice : Melange_json.t option; [@json.default None]
   stop_sequences : string list option; [@json.default None]
   thinking : thinking_json option; [@json.default None]
-} [@@json.allow_extra_fields] [@@deriving of_json]
+}
+[@@json.allow_extra_fields] [@@deriving of_json]
 
-type mock_response_fields = {
-  id : string;
-} [@@json.allow_extra_fields] [@@deriving of_json]
+type mock_response_fields = { id : string } [@@json.allow_extra_fields] [@@deriving of_json]
 
 let test_minimal_body () =
   let body = Ai_provider_anthropic.Anthropic_api.make_request_body ~model:"claude-sonnet-4-6" ~messages:[] () in
@@ -105,7 +105,15 @@ let test_messages_with_mock_fetch () =
         model = Some "claude-sonnet-4-6";
         content =
           [
-            { type_ = "text"; text = Some "Hi"; id = None; name = None; input = None; thinking = None; signature = None };
+            {
+              type_ = "text";
+              text = Some "Hi";
+              id = None;
+              name = None;
+              input = None;
+              thinking = None;
+              signature = None;
+            };
           ];
         stop_reason = Some "end_turn";
         usage =

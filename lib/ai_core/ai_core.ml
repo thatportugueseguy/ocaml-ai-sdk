@@ -8,3 +8,5 @@ module Generate_text = Generate_text
 module Stream_text_result = Stream_text_result
 module Stream_text = Stream_text
 module Server_handler = Server_handler
+module Partial_json = Partial_json
+module Output = Output

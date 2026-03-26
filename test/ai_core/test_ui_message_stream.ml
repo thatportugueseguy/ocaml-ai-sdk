@@ -63,7 +63,6 @@ let () =
       "headers", [ test_case "headers" `Quick test_headers ];
       ( "stream",
         [
-          test_case "stream_to_sse" `Quick test_stream_to_sse;
-          test_case "empty_stream" `Quick test_stream_to_sse_empty;
+          test_case "stream_to_sse" `Quick test_stream_to_sse; test_case "empty_stream" `Quick test_stream_to_sse_empty;
         ] );
     ]

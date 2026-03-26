@@ -84,10 +84,8 @@ type content_block_wire = {
 
 let content_block_to_json = function
   | Text { text } -> text_block_wire_to_json { type_ = "text"; text }
-  | Thinking { thinking; signature } ->
-    thinking_block_wire_to_json { type_ = "thinking"; thinking; signature }
-  | Tool_use { id; name; input } ->
-    tool_use_block_wire_to_json { type_ = "tool_use"; id; name; input }
+  | Thinking { thinking; signature } -> thinking_block_wire_to_json { type_ = "thinking"; thinking; signature }
+  | Tool_use { id; name; input } -> tool_use_block_wire_to_json { type_ = "tool_use"; id; name; input }
   | Tool_result { tool_use_id; content; is_error } ->
     tool_result_block_wire_to_json { type_ = "tool_result"; tool_use_id; content; is_error }
 

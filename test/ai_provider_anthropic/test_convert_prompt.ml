@@ -5,11 +5,10 @@ type content_json = {
   type_ : string; [@json.key "type"]
   text : string option; [@json.default None]
   cache_control : cache_control_json option; [@json.default None]
-} [@@json.allow_extra_fields] [@@deriving of_json]
+}
+[@@json.allow_extra_fields] [@@deriving of_json]
 
-and cache_control_json = {
-  cc_type : string; [@json.key "type"]
-} [@@deriving of_json]
+and cache_control_json = { cc_type : string [@json.key "type"] } [@@deriving of_json]
 
 let po = Ai_provider.Provider_options.empty
 
@@ -51,8 +50,7 @@ let test_convert_user_text () =
   let result = Ai_provider_anthropic.Convert_prompt.convert_messages msgs in
   (check int) "1 message" 1 (List.length result);
   let msg = List.nth result 0 in
-  (check string)
-    "role" "user"
+  (check string) "role" "user"
     (match msg.role with
     | `User -> "user"
     | `Assistant -> "assistant");
@@ -63,8 +61,7 @@ let test_convert_assistant_text () =
   let result = Ai_provider_anthropic.Convert_prompt.convert_messages msgs in
   (check int) "1 message" 1 (List.length result);
   let msg = List.nth result 0 in
-  (check string)
-    "role" "assistant"
+  (check string) "role" "assistant"
     (match msg.role with
     | `User -> "user"
     | `Assistant -> "assistant")
@@ -92,8 +89,7 @@ let test_convert_tool_result_as_user () =
   (check int) "1 message" 1 (List.length result);
   let msg = List.nth result 0 in
   (* Tool results become user messages *)
-  (check string)
-    "role" "user"
+  (check string) "role" "user"
     (match msg.role with
     | `User -> "user"
     | `Assistant -> "assistant")
@@ -163,8 +159,5 @@ let () =
           test_case "empty" `Quick test_empty_messages;
         ] );
       ( "json",
-        [
-          test_case "text" `Quick test_text_to_json;
-          test_case "text_with_cache" `Quick test_text_with_cache_control;
-        ] );
+        [ test_case "text" `Quick test_text_to_json; test_case "text_with_cache" `Quick test_text_with_cache_control ] );
     ]

@@ -16,7 +16,7 @@ let next_reasoning_id gen =
 
 (** Consume a provider stream for one step, emitting [Text_stream_part.t] events.
     Returns the accumulated text, reasoning, tool calls, finish reason, and usage. *)
-let consume_provider_stream ~id_gen ~push ~on_chunk provider_stream =
+let consume_provider_stream ~id_gen ~push ~on_chunk ?(on_text_accumulated = fun (_ : string) -> ()) provider_stream =
   let text_buf = Buffer.create 256 in
   let reasoning_buf = Buffer.create 256 in
   let current_text_id = ref None in
@@ -63,6 +63,7 @@ let consume_provider_stream ~id_gen ~push ~on_chunk provider_stream =
               id
           in
           Buffer.add_string text_buf text;
+          on_text_accumulated (Buffer.contents text_buf);
           emit (Text_stream_part.Text_delta { id; text })
         | Reasoning { text } ->
           let id =
@@ -112,10 +113,11 @@ let consume_provider_stream ~id_gen ~push ~on_chunk provider_stream =
     (Buffer.contents text_buf, Buffer.contents reasoning_buf, List.rev !completed_tool_calls, !finish_reason, !usage)
 
 let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provider.Tool_choice.t option)
-  ?(max_steps = 1) ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?headers ?provider_options
-  ?on_step_finish ?on_chunk ?on_finish () =
+  ?(output : (Yojson.Basic.t, Yojson.Basic.t) Output.t option) ?(max_steps = 1) ?max_output_tokens ?temperature ?top_p
+  ?top_k ?stop_sequences ?seed ?headers ?provider_options ?on_step_finish ?on_chunk ?on_finish () =
   (* Build initial messages *)
   let initial_messages = Prompt_builder.resolve_messages ?system ?prompt ?messages () in
+  let mode = Output.mode_of_output output in
   let tools =
     match tools with
     | Some t -> t
@@ -125,10 +127,29 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
   (* Create output streams *)
   let full_stream, full_push = Lwt_stream.create () in
   let text_stream, text_push = Lwt_stream.create () in
+  let partial_output_stream, partial_output_push = Lwt_stream.create () in
   (* Promises for final values *)
   let usage_promise, usage_resolver = Lwt.wait () in
   let finish_promise, finish_resolver = Lwt.wait () in
   let steps_promise, steps_resolver = Lwt.wait () in
+  let output_promise, output_resolver = Lwt.wait () in
+  (* Partial output deduplication *)
+  let last_partial_json = ref "" in
+  let on_text_accumulated =
+    match output with
+    | Some o when Option.is_some o.Output.response_format ->
+      fun accumulated ->
+        (match o.Output.parse_partial accumulated with
+        | Some json ->
+          let json_str = Yojson.Basic.to_string json in
+          (match String.equal json_str !last_partial_json with
+          | true -> ()
+          | false ->
+            last_partial_json := json_str;
+            partial_output_push (Some json))
+        | None -> ())
+    | _ -> fun (_ : string) -> ()
+  in
   let id_gen = make_id_gen () in
   (* Wrapper that also pushes text to text_stream *)
   let push_full part =
@@ -150,20 +171,22 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
         emit_event
           (Text_stream_part.Finish { finish_reason = Ai_provider.Finish_reason.Other "max_steps"; usage = total_usage });
         push_full None;
+        partial_output_push None;
         Lwt.wakeup_later usage_resolver total_usage;
         Lwt.wakeup_later finish_resolver (Ai_provider.Finish_reason.Other "max_steps");
         Lwt.wakeup_later steps_resolver (List.rev steps);
+        Lwt.wakeup_later output_resolver None;
         Lwt.return_unit
       end
       else begin
         emit_event Text_stream_part.Start_step;
         let opts =
-          Prompt_builder.make_call_options ~messages:current_messages ~tools:provider_tools ?tool_choice
+          Prompt_builder.make_call_options ~messages:current_messages ~tools:provider_tools ?tool_choice ~mode
             ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?provider_options ?headers ()
         in
         let%lwt stream_result = Ai_provider.Language_model.stream model opts in
         let%lwt text, reasoning, tool_calls, fr, step_usage =
-          consume_provider_stream ~id_gen ~push:push_full ~on_chunk stream_result.stream
+          consume_provider_stream ~id_gen ~push:push_full ~on_chunk ~on_text_accumulated stream_result.stream
         in
         let new_total = Generate_text_result.add_usage total_usage step_usage in
         let has_tool_calls =
@@ -268,10 +291,13 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
           emit_event (Text_stream_part.Finish_step { finish_reason = fr; usage = step_usage });
           emit_event (Text_stream_part.Finish { finish_reason = fr; usage = new_total });
           push_full None;
+          let all_steps = List.rev (step :: steps) in
+          let parsed_output = Output.parse_output output all_steps in
+          partial_output_push None;
           Lwt.wakeup_later usage_resolver new_total;
           Lwt.wakeup_later finish_resolver fr;
-          let all_steps = List.rev (step :: steps) in
           Lwt.wakeup_later steps_resolver all_steps;
+          Lwt.wakeup_later output_resolver parsed_output;
           (* Call on_finish if provided *)
           (match on_finish with
           | Some f ->
@@ -288,6 +314,7 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
                 usage = new_total;
                 response = { id = None; model = None; headers = []; body = `Null };
                 warnings = [];
+                output = parsed_output;
               }
           | None -> ());
           Lwt.return_unit
@@ -303,15 +330,19 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
         let msg = Printexc.to_string exn in
         push_full (Some (Text_stream_part.Error { error = msg }));
         push_full None;
+        partial_output_push None;
         Lwt.wakeup_later_exn usage_resolver exn;
         Lwt.wakeup_later_exn finish_resolver exn;
         Lwt.wakeup_later_exn steps_resolver exn;
+        Lwt.wakeup_later output_resolver None;
         Lwt.return_unit));
   {
     Stream_text_result.text_stream;
     full_stream;
+    partial_output_stream;
     usage = usage_promise;
     finish_reason = finish_promise;
     steps = steps_promise;
     warnings = [];
+    output = output_promise;
   }

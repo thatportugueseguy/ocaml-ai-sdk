@@ -43,11 +43,12 @@ let parse_content (content : Ai_provider.Content.t list) =
     content;
   Buffer.contents text, Buffer.contents reasoning, List.rev !tool_calls
 
-let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provider.Tool_choice.t option)
+let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provider.Tool_choice.t option) ?output
   ?(max_steps = 1) ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?headers ?provider_options
   ?on_step_finish () =
   (* Build initial messages *)
   let initial_messages = Prompt_builder.resolve_messages ?system ?prompt ?messages () in
+  let mode = Output.mode_of_output output in
   let tools =
     match tools with
     | Some t -> t
@@ -83,11 +84,12 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
           usage = total_usage;
           response = { id = None; model = None; headers = []; body = `Null };
           warnings = [];
+          output = None;
         }
     end
     else begin
       let opts =
-        Prompt_builder.make_call_options ~messages:current_messages ~tools:provider_tools ?tool_choice
+        Prompt_builder.make_call_options ~messages:current_messages ~tools:provider_tools ?tool_choice ~mode
           ?max_output_tokens ?temperature ?top_p ?top_k ?stop_sequences ?seed ?provider_options ?headers ()
       in
       let%lwt result = Ai_provider.Language_model.generate model opts in
@@ -139,6 +141,7 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
         in
         Option.iter (fun f -> f step) on_step_finish;
         let all_steps = List.rev (step :: steps) in
+        let parsed_output = Output.parse_output output all_steps in
         Lwt.return
           {
             Generate_text_result.text = Generate_text_result.join_text all_steps;
@@ -150,6 +153,7 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
             usage = new_usage;
             response = result.response;
             warnings = result.warnings;
+            output = parsed_output;
           }
       end
     end

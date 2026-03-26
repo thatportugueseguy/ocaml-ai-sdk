@@ -40,7 +40,8 @@ type content_block_delta_event = {
 
 type content_block_stop_event = { index : int } [@@json.allow_extra_fields] [@@deriving of_json]
 
-type message_delta_info = { stop_reason : string option [@json.default None] } [@@json.allow_extra_fields] [@@deriving of_json]
+type message_delta_info = { stop_reason : string option [@json.default None] }
+[@@json.allow_extra_fields] [@@deriving of_json]
 
 type message_delta_event = {
   delta : message_delta_info;

@@ -174,6 +174,44 @@ let test_finish_reason () =
   let fr = Lwt_main.run result.finish_reason in
   (check string) "stop" "stop" (Ai_provider.Finish_reason.to_string fr)
 
+let test_stream_with_object_output () =
+  let json_text = {|{"name":"Alice","age":30}|} in
+  let model = make_text_stream_model json_text in
+  let schema =
+    `Assoc
+      [
+        "type", `String "object";
+        ( "properties",
+          `Assoc [ "name", `Assoc [ "type", `String "string" ]; "age", `Assoc [ "type", `String "integer" ] ] );
+        "required", `List [ `String "name"; `String "age" ];
+        "additionalProperties", `Bool false;
+      ]
+  in
+  let output = Ai_core.Output.object_ ~name:"person" ~schema () in
+  let result = Ai_core.Stream_text.stream_text ~model ~prompt:"Give me a person" ~output () in
+  (* Drain full_stream to let background task complete *)
+  let _parts = Lwt_main.run (Lwt_stream.to_list result.full_stream) in
+  (* Check partial output stream has entries *)
+  let partials = Lwt_main.run (Lwt_stream.to_list result.partial_output_stream) in
+  (check bool) "has partial outputs" true (List.length partials > 0);
+  (* Check final output resolves to parsed JSON *)
+  let final_output = Lwt_main.run result.output in
+  match final_output with
+  | Some json -> (check string) "output json" json_text (Yojson.Basic.to_string json)
+  | None -> fail "expected Some output"
+
+let test_stream_without_output () =
+  let model = make_text_stream_model "Hello world" in
+  let result = Ai_core.Stream_text.stream_text ~model ~prompt:"Say hello" () in
+  (* Drain full_stream to let background task complete *)
+  let _parts = Lwt_main.run (Lwt_stream.to_list result.full_stream) in
+  (* Check partial output stream is empty *)
+  let partials = Lwt_main.run (Lwt_stream.to_list result.partial_output_stream) in
+  (check int) "no partial outputs" 0 (List.length partials);
+  (* Check output is None *)
+  let final_output = Lwt_main.run result.output in
+  (check bool) "output is None" true (Option.is_none final_output)
+
 let () =
   run "Stream_text"
     [
@@ -185,4 +223,9 @@ let () =
         ] );
       "tools", [ test_case "tool_loop" `Quick test_tool_stream_loop ];
       "callbacks", [ test_case "on_chunk" `Quick test_on_chunk_callback ];
+      ( "output",
+        [
+          test_case "with_object_output" `Quick test_stream_with_object_output;
+          test_case "without_output" `Quick test_stream_without_output;
+        ] );
     ]

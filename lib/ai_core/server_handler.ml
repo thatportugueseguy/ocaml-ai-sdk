@@ -67,7 +67,8 @@ let handle_cors_preflight _conn _req _body =
   let response = Cohttp.Response.make ~status:`No_content ~headers () in
   Lwt.return (response, Cohttp_lwt.Body.empty)
 
-let handle_chat ~model ?tools ?max_steps ?system ?send_reasoning ?(cors = true) ?provider_options _conn _req body =
+let handle_chat ~model ?tools ?max_steps ?system ?output ?send_reasoning ?(cors = true) ?provider_options _conn _req
+  body =
   let%lwt body_str = Cohttp_lwt.Body.to_string body in
   let body_json =
     try Ok (Yojson.Basic.from_string body_str)
@@ -82,13 +83,13 @@ let handle_chat ~model ?tools ?max_steps ?system ?send_reasoning ?(cors = true) 
     let body = Cohttp_lwt.Body.of_string (Printf.sprintf {|{"error":"Invalid JSON: %s"}|} msg) in
     Lwt.return (Cohttp.Response.make ~status ~headers (), body)
   | Ok body_json ->
-  let messages = parse_messages_from_body body_json in
-  let messages =
-    match system with
-    | Some s -> Ai_provider.Prompt.System { content = s } :: messages
-    | None -> messages
-  in
-  let result = Stream_text.stream_text ~model ~messages ?tools ?max_steps ?provider_options () in
-  let sse_stream = Stream_text_result.to_ui_message_sse_stream ?send_reasoning result in
-  let extra_headers = if cors then cors_headers else [] in
-  make_sse_response ~extra_headers sse_stream
+    let messages = parse_messages_from_body body_json in
+    let messages =
+      match system with
+      | Some s -> Ai_provider.Prompt.System { content = s } :: messages
+      | None -> messages
+    in
+    let result = Stream_text.stream_text ~model ~messages ?tools ?max_steps ?output ?provider_options () in
+    let sse_stream = Stream_text_result.to_ui_message_sse_stream ?send_reasoning result in
+    let extra_headers = if cors then cors_headers else [] in
+    make_sse_response ~extra_headers sse_stream

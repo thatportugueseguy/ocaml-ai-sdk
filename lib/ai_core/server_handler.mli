@@ -27,6 +27,7 @@ val handle_chat :
   ?tools:(string * Core_tool.t) list ->
   ?max_steps:int ->
   ?system:string ->
+  ?output:(Yojson.Basic.t, Yojson.Basic.t) Output.t ->
   ?send_reasoning:bool ->
   ?cors:bool ->
   ?provider_options:Ai_provider.Provider_options.t ->

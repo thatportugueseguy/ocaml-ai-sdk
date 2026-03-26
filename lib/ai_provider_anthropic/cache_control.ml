@@ -9,9 +9,7 @@ let breakpoint_of_json = function
   | `Assoc fields ->
     (match List.assoc_opt "type" fields with
     | Some (`String "ephemeral") -> Ephemeral
-    | _ ->
-      raise
-        (Melange_json.Of_json_error (Melange_json.Unexpected_variant "Unknown cache breakpoint type")))
+    | _ -> raise (Melange_json.Of_json_error (Melange_json.Unexpected_variant "Unknown cache breakpoint type")))
   | json ->
     raise
       (Melange_json.Of_json_error
