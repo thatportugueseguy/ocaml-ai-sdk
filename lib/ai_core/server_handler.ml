@@ -89,13 +89,12 @@ let parse_file_data (p : parsed_part) =
       | _, Some d -> Some (Ai_provider.Prompt.Base64 d)
       | None, None -> None
     in
-    Option.map (fun data -> (data, media_type, p.filename)) data
+    Option.map (fun data -> data, media_type, p.filename) data
   | None -> None
 
 let parse_user_part (p : parsed_part) : Ai_provider.Prompt.user_part option =
   match part_type_of_string p.type_ with
-  | Text ->
-    Option.map (fun text : Ai_provider.Prompt.user_part -> Text { text; provider_options = empty_opts }) p.text
+  | Text -> Option.map (fun text : Ai_provider.Prompt.user_part -> Text { text; provider_options = empty_opts }) p.text
   | File ->
     Option.map
       (fun (data, media_type, filename) : Ai_provider.Prompt.user_part ->
@@ -118,9 +117,9 @@ let parse_tool_call (p : parsed_part) : Ai_provider.Prompt.assistant_part option
   match part_type_of_string p.type_ with
   | Tool_invocation _ ->
     (match p.tool_call_id, p.tool_name, p.input with
-     | Some id, Some name, Some args ->
-       Some (Ai_provider.Prompt.Tool_call { id; name; args; provider_options = empty_opts })
-     | _ -> None)
+    | Some id, Some name, Some args ->
+      Some (Ai_provider.Prompt.Tool_call { id; name; args; provider_options = empty_opts })
+    | _ -> None)
   | _ -> None
 
 let parse_tool_result (p : parsed_part) : Ai_provider.Prompt.tool_result option =
@@ -128,30 +127,43 @@ let parse_tool_result (p : parsed_part) : Ai_provider.Prompt.tool_result option 
   | Tool_invocation _ ->
     let state = Option.map tool_state_of_string p.state in
     (match state, p.tool_call_id, p.tool_name with
-     | Some Output_available, Some tool_call_id, Some tool_name ->
-       let result = Option.value ~default:`Null p.output in
-       Some
-         { Ai_provider.Prompt.tool_call_id; tool_name; result; is_error = false; content = []; provider_options = empty_opts
-         }
-     | Some Output_error, Some tool_call_id, Some tool_name ->
-       let result =
-         match p.error_text with
-         | Some e -> `String e
-         | None -> `String "Tool execution failed"
-       in
-       Some
-         { Ai_provider.Prompt.tool_call_id; tool_name; result; is_error = true; content = []; provider_options = empty_opts
-         }
-     | Some Output_denied, Some tool_call_id, Some tool_name ->
-       Some
-         { Ai_provider.Prompt.tool_call_id;
-           tool_name;
-           result = `String "Tool execution denied";
-           is_error = true;
-           content = [];
-           provider_options = empty_opts;
-         }
-     | _ -> None)
+    | Some Output_available, Some tool_call_id, Some tool_name ->
+      let result = Option.value ~default:`Null p.output in
+      Some
+        {
+          Ai_provider.Prompt.tool_call_id;
+          tool_name;
+          result;
+          is_error = false;
+          content = [];
+          provider_options = empty_opts;
+        }
+    | Some Output_error, Some tool_call_id, Some tool_name ->
+      let result =
+        match p.error_text with
+        | Some e -> `String e
+        | None -> `String "Tool execution failed"
+      in
+      Some
+        {
+          Ai_provider.Prompt.tool_call_id;
+          tool_name;
+          result;
+          is_error = true;
+          content = [];
+          provider_options = empty_opts;
+        }
+    | Some Output_denied, Some tool_call_id, Some tool_name ->
+      Some
+        {
+          Ai_provider.Prompt.tool_call_id;
+          tool_name;
+          result = `String "Tool execution denied";
+          is_error = true;
+          content = [];
+          provider_options = empty_opts;
+        }
+    | _ -> None)
   | _ -> None
 
 let parse_messages_from_body body_json =
@@ -173,8 +185,8 @@ let parse_messages_from_body body_json =
         | Some User ->
           let content = List.filter_map parse_user_part msg.parts in
           (match content with
-           | [] -> []
-           | content -> [ Ai_provider.Prompt.User { content } ])
+          | [] -> []
+          | content -> [ Ai_provider.Prompt.User { content } ])
         | Some Assistant ->
           let assistant_parts =
             List.filter_map
@@ -191,8 +203,8 @@ let parse_messages_from_body body_json =
             | content -> [ Ai_provider.Prompt.Assistant { content } ]
           in
           (match tool_results with
-           | [] -> msgs
-           | content -> msgs @ [ Ai_provider.Prompt.Tool { content } ])
+          | [] -> msgs
+          | content -> msgs @ [ Ai_provider.Prompt.Tool { content } ])
         | None -> [])
       messages
   with Melange_json.Of_json_error _ -> []

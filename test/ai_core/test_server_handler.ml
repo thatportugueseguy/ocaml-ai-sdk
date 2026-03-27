@@ -8,12 +8,11 @@ let count_by_role msgs =
   List.fold_left
     (fun (s, u, a, t) msg ->
       match (msg : Ai_provider.Prompt.message) with
-      | System _ -> (s + 1, u, a, t)
-      | User _ -> (s, u + 1, a, t)
-      | Assistant _ -> (s, u, a + 1, t)
-      | Tool _ -> (s, u, a, t + 1))
-    (0, 0, 0, 0)
-    msgs
+      | System _ -> s + 1, u, a, t
+      | User _ -> s, u + 1, a, t
+      | Assistant _ -> s, u, a + 1, t
+      | Tool _ -> s, u, a, t + 1)
+    (0, 0, 0, 0) msgs
 
 (* === SSE response tests === *)
 
@@ -65,11 +64,7 @@ let test_make_sse_response_body_content () =
 (* === parse_messages_from_body tests === *)
 
 let test_parse_user_text_only () =
-  let msgs =
-    parse
-      (json
-         {|{"messages":[{"role":"user","parts":[{"type":"text","text":"Hello"}]}]}|})
-  in
+  let msgs = parse (json {|{"messages":[{"role":"user","parts":[{"type":"text","text":"Hello"}]}]}|}) in
   (check int) "one message" 1 (List.length msgs);
   match msgs with
   | [ User { content = [ Text { text; _ } ] } ] -> (check string) "text" "Hello" text
@@ -92,9 +87,7 @@ let test_parse_user_multiple_text_parts () =
 
 let test_parse_system_message () =
   let msgs =
-    parse
-      (json
-         {|{"messages":[{"role":"system","parts":[{"type":"text","text":"You are a helpful assistant."}]}]}|})
+    parse (json {|{"messages":[{"role":"system","parts":[{"type":"text","text":"You are a helpful assistant."}]}]}|})
   in
   match msgs with
   | [ System { content } ] -> (check string) "system content" "You are a helpful assistant." content
@@ -114,11 +107,7 @@ let test_parse_system_concatenates_text_parts () =
   | _ -> fail "expected System message"
 
 let test_parse_assistant_text () =
-  let msgs =
-    parse
-      (json
-         {|{"messages":[{"role":"assistant","parts":[{"type":"text","text":"Hi there!"}]}]}|})
-  in
+  let msgs = parse (json {|{"messages":[{"role":"assistant","parts":[{"type":"text","text":"Hi there!"}]}]}|}) in
   match msgs with
   | [ Assistant { content = [ Text { text; _ } ] } ] -> (check string) "text" "Hi there!" text
   | _ -> fail "expected Assistant with Text"
@@ -197,9 +186,10 @@ let test_parse_tool_invocation_output_available () =
   (check int) "tool msgs" 1 t;
   (check int) "system msgs" 0 s;
   match msgs with
-  | [ Assistant { content = [ Text { text; _ }; Tool_call { id; name; args; _ } ] };
-      Tool { content = [ { tool_call_id; tool_name; result; is_error; _ } ] };
-    ] ->
+  | [
+   Assistant { content = [ Text { text; _ }; Tool_call { id; name; args; _ } ] };
+   Tool { content = [ { tool_call_id; tool_name; result; is_error; _ } ] };
+  ] ->
     (check string) "text" "Let me check..." text;
     (check string) "tool_call id" "tc_1" id;
     (check string) "tool_call name" "weather" name;
@@ -283,9 +273,7 @@ let test_parse_multiple_tool_calls () =
           ]}]}|})
   in
   match msgs with
-  | [ Assistant { content = [ Tool_call { id = id1; _ }; Tool_call { id = id2; _ } ] };
-      Tool { content = results };
-    ] ->
+  | [ Assistant { content = [ Tool_call { id = id1; _ }; Tool_call { id = id2; _ } ] }; Tool { content = results } ] ->
     (check string) "first id" "tc_a" id1;
     (check string) "second id" "tc_b" id2;
     (check int) "two results" 2 (List.length results)
@@ -319,15 +307,11 @@ let test_parse_skip_step_start () =
   | _ -> fail "expected Assistant with only text (step-start skipped)"
 
 let test_parse_empty_parts () =
-  let msgs =
-    parse (json {|{"messages":[{"role":"user","parts":[]}]}|})
-  in
+  let msgs = parse (json {|{"messages":[{"role":"user","parts":[]}]}|}) in
   (check int) "no messages for empty parts" 0 (List.length msgs)
 
 let test_parse_missing_parts () =
-  let msgs =
-    parse (json {|{"messages":[{"role":"user"}]}|})
-  in
+  let msgs = parse (json {|{"messages":[{"role":"user"}]}|}) in
   (check int) "no messages when parts missing" 0 (List.length msgs)
 
 let test_parse_multi_turn_conversation () =
@@ -392,8 +376,7 @@ let test_parse_tool_invocation_input_streaming () =
           ]}]}|})
   in
   match msgs with
-  | [ Assistant { content = [ Tool_call { id; _ } ] } ] ->
-    (check string) "id" "tc_s" id
+  | [ Assistant { content = [ Tool_call { id; _ } ] } ] -> (check string) "id" "tc_s" id
   | _ -> fail "expected Assistant(Tool_call only, no Tool message)"
 
 let test_parse_tool_approval_requested () =
@@ -423,8 +406,7 @@ let test_parse_tool_approval_responded () =
           ]}]}|})
   in
   match msgs with
-  | [ Assistant { content = [ Tool_call { id; _ } ] } ] ->
-    (check string) "id" "tc_ar" id
+  | [ Assistant { content = [ Tool_call { id; _ } ] } ] -> (check string) "id" "tc_ar" id
   | _ -> fail "expected Assistant(Tool_call only, no Tool message for approval-responded)"
 
 let test_parse_tool_output_available_null_output () =
@@ -488,13 +470,9 @@ let test_parse_no_messages_field () =
   (check int) "empty" 0 (List.length msgs)
 
 let test_parse_text_part_missing_text_skipped () =
-  let msgs =
-    parse
-      (json
-         {|{"messages":[{"role":"user","parts":[
+  let msgs = parse (json {|{"messages":[{"role":"user","parts":[
             {"type":"text"}
-          ]}]}|})
-  in
+          ]}]}|}) in
   (check int) "no messages (text without text field)" 0 (List.length msgs)
 
 let test_parse_extra_request_fields_ignored () =
