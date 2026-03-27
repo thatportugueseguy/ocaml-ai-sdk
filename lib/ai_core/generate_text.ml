@@ -110,29 +110,71 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
         | Some Auto | Some Required | Some (Specific _) | None -> true
       in
       if should_continue then begin
-        (* Execute tools *)
-        let tool_content =
-          List.filter
-            (fun (c : Ai_provider.Content.t) ->
-              match c with
-              | Tool_call _ -> true
-              | Text _ | Reasoning _ | File _ -> false)
-            result.content
+        (* Check if any tools need approval *)
+        let%lwt any_needs_approval =
+          Lwt_list.exists_s
+            (fun (tc : Generate_text_result.tool_call) ->
+              match List.assoc_opt tc.tool_name tools with
+              | Some tool ->
+                (match tool.Core_tool.needs_approval with
+                | Some check -> check tc.args
+                | None -> Lwt.return_false)
+              | None -> Lwt.return_false)
+            tool_calls
         in
-        let%lwt tool_results = Lwt_list.map_s (execute_tool_call ~tools) tool_content in
-        let step : Generate_text_result.step =
-          { text; reasoning; tool_calls; tool_results; finish_reason = result.finish_reason; usage = result.usage }
-        in
-        Option.iter (fun f -> f step) on_step_finish;
-        (* Append assistant + tool results for next iteration *)
-        let updated_messages =
-          Prompt_builder.append_assistant_and_tool_results ~messages:current_messages ~assistant_content:result.content
-            ~tool_results
-        in
-        loop ~current_messages:updated_messages ~steps:(step :: steps) ~total_usage:new_usage
-          ~all_tool_calls:(List.rev_append tool_calls all_tool_calls)
-          ~all_tool_results:(List.rev_append tool_results all_tool_results)
-          ~step_num:(step_num + 1)
+        match any_needs_approval with
+        | true ->
+          (* Stop loop — tools need approval *)
+          let step : Generate_text_result.step =
+            {
+              text;
+              reasoning;
+              tool_calls;
+              tool_results = [];
+              finish_reason = result.finish_reason;
+              usage = result.usage;
+            }
+          in
+          Option.iter (fun f -> f step) on_step_finish;
+          let all_steps = List.rev (step :: steps) in
+          let parsed_output = Output.parse_output output all_steps in
+          Lwt.return
+            {
+              Generate_text_result.text = Generate_text_result.join_text all_steps;
+              reasoning = Generate_text_result.join_reasoning all_steps;
+              tool_calls = List.rev (List.rev_append tool_calls all_tool_calls);
+              tool_results = List.rev all_tool_results;
+              steps = all_steps;
+              finish_reason = result.finish_reason;
+              usage = new_usage;
+              response = result.response;
+              warnings = result.warnings;
+              output = parsed_output;
+            }
+        | false ->
+          (* Execute tools *)
+          let tool_content =
+            List.filter
+              (fun (c : Ai_provider.Content.t) ->
+                match c with
+                | Tool_call _ -> true
+                | Text _ | Reasoning _ | File _ -> false)
+              result.content
+          in
+          let%lwt tool_results = Lwt_list.map_s (execute_tool_call ~tools) tool_content in
+          let step : Generate_text_result.step =
+            { text; reasoning; tool_calls; tool_results; finish_reason = result.finish_reason; usage = result.usage }
+          in
+          Option.iter (fun f -> f step) on_step_finish;
+          (* Append assistant + tool results for next iteration *)
+          let updated_messages =
+            Prompt_builder.append_assistant_and_tool_results ~messages:current_messages
+              ~assistant_content:result.content ~tool_results
+          in
+          loop ~current_messages:updated_messages ~steps:(step :: steps) ~total_usage:new_usage
+            ~all_tool_calls:(List.rev_append tool_calls all_tool_calls)
+            ~all_tool_results:(List.rev_append tool_results all_tool_results)
+            ~step_num:(step_num + 1)
       end
       else begin
         (* Final step - no more tool calls *)

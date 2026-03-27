@@ -230,6 +230,102 @@ let test_generate_without_output () =
   | None -> ()
   | Some _ -> fail "expected None when no output spec"
 
+(* Mock model that always returns a single tool call for "dangerous_action" *)
+let make_single_tool_call_model () =
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-approval"
+
+    let generate _opts =
+      Lwt.return
+        {
+          Ai_provider.Generate_result.content =
+            [
+              Ai_provider.Content.Text { text = "Let me check." };
+              Ai_provider.Content.Tool_call
+                {
+                  tool_call_type = "function";
+                  tool_call_id = "tc_1";
+                  tool_name = "dangerous_action";
+                  args = {|{"target":"prod"}|};
+                };
+            ];
+          finish_reason = Ai_provider.Finish_reason.Tool_calls;
+          usage = { input_tokens = 10; output_tokens = 15; total_tokens = Some 25 };
+          warnings = [];
+          provider_metadata = Ai_provider.Provider_options.empty;
+          request = { body = `Null };
+          response = { id = Some "r1"; model = Some "mock-approval"; headers = []; body = `Null };
+        }
+
+    let stream _opts =
+      let stream, push = Lwt_stream.create () in
+      push None;
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  (module M : Ai_provider.Language_model.S)
+
+let approval_tool : Ai_core.Core_tool.t =
+  Ai_core.Core_tool.create_with_approval ~description:"Dangerous"
+    ~parameters:(`Assoc [ "type", `String "object" ])
+    ~execute:(fun _ -> Lwt.return (`String "executed"))
+    ()
+
+let test_approval_stops_loop () =
+  let model = make_single_tool_call_model () in
+  let result =
+    Lwt_main.run
+      (Ai_core.Generate_text.generate_text ~model ~prompt:"Do it"
+         ~tools:[ "dangerous_action", approval_tool ]
+         ~max_steps:3 ())
+  in
+  (check int) "1 step" 1 (List.length result.steps);
+  (check int) "1 tool call" 1 (List.length result.tool_calls);
+  (check int) "0 tool results" 0 (List.length result.tool_results)
+
+let test_no_approval_executes_normally () =
+  let model = make_tool_model () in
+  let no_approval_search_tool : Ai_core.Core_tool.t =
+    Ai_core.Core_tool.create ~description:"Search"
+      ~parameters:(`Assoc [ "type", `String "object" ])
+      ~execute:(fun args ->
+        let query = try (query_args_of_json args).query with _ -> "unknown" in
+        Lwt.return (`String (Printf.sprintf "Results for: %s" query)))
+      ()
+  in
+  let result =
+    Lwt_main.run
+      (Ai_core.Generate_text.generate_text ~model ~prompt:"Search for test"
+         ~tools:[ "search", no_approval_search_tool ]
+         ~max_steps:3 ())
+  in
+  (check int) "2 steps" 2 (List.length result.steps);
+  (check int) "1 tool call" 1 (List.length result.tool_calls);
+  (check int) "1 tool result" 1 (List.length result.tool_results)
+
+let test_dynamic_approval_conditional () =
+  let dynamic_tool : Ai_core.Core_tool.t =
+    Ai_core.Core_tool.create
+      ~needs_approval:(fun args ->
+        let target = try Yojson.Basic.Util.member "target" args |> Yojson.Basic.Util.to_string with _ -> "" in
+        Lwt.return (String.equal target "prod"))
+      ~description:"Dangerous"
+      ~parameters:(`Assoc [ "type", `String "object" ])
+      ~execute:(fun _ -> Lwt.return (`String "executed"))
+      ()
+  in
+  let model = make_single_tool_call_model () in
+  let result =
+    Lwt_main.run
+      (Ai_core.Generate_text.generate_text ~model ~prompt:"Do it"
+         ~tools:[ "dangerous_action", dynamic_tool ]
+         ~max_steps:3 ())
+  in
+  (check int) "1 step" 1 (List.length result.steps);
+  (check int) "1 tool call" 1 (List.length result.tool_calls);
+  (check int) "0 tool results" 0 (List.length result.tool_results)
+
 let test_prompt_and_messages_conflict () =
   let model = make_text_model "test" in
   let raised = ref false in
@@ -253,6 +349,12 @@ let () =
           test_case "tool_not_found" `Quick test_tool_not_found;
           test_case "max_steps_1" `Quick test_max_steps_1;
           test_case "on_step_finish" `Quick test_on_step_finish;
+        ] );
+      ( "approval",
+        [
+          test_case "approval_stops_loop" `Quick test_approval_stops_loop;
+          test_case "no_approval_executes_normally" `Quick test_no_approval_executes_normally;
+          test_case "dynamic_approval_conditional" `Quick test_dynamic_approval_conditional;
         ] );
       "errors", [ test_case "prompt_and_messages" `Quick test_prompt_and_messages_conflict ];
       ( "output",
