@@ -123,6 +123,15 @@ let test_tool_output_denied () =
   let json = json_str (Tool_output_denied { tool_call_id = "tc_1" }) in
   (check string) "tool-output-denied" {|{"type":"tool-output-denied","toolCallId":"tc_1"}|} json
 
+let test_tool_approval_request () =
+  let json =
+    json_str
+      (Tool_approval_request
+         { tool_call_id = "tc_1"; tool_name = "weather"; input = `Assoc [ "city", `String "London" ] })
+  in
+  (check string) "tool-approval-request"
+    {|{"type":"tool-approval-request","toolCallId":"tc_1","toolName":"weather","input":{"city":"London"}}|} json
+
 let test_source_document () =
   let json =
     json_str
@@ -179,6 +188,7 @@ let () =
           test_case "message_metadata" `Quick test_message_metadata;
           test_case "tool_input_error" `Quick test_tool_input_error;
           test_case "tool_output_denied" `Quick test_tool_output_denied;
+          test_case "tool_approval_request" `Quick test_tool_approval_request;
           test_case "source_document" `Quick test_source_document;
           test_case "source_document_no_filename" `Quick test_source_document_no_filename;
         ] );

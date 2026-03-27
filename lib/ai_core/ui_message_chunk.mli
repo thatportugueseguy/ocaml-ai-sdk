@@ -66,6 +66,11 @@ type t =
       error_text : string;
     }
   | Tool_output_denied of { tool_call_id : string }
+  | Tool_approval_request of {
+      tool_call_id : string;
+      tool_name : string;
+      input : Yojson.Basic.t;
+    }
   | Source_document of {
       source_id : string;
       media_type : string;
