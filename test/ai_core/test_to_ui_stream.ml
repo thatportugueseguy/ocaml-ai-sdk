@@ -148,6 +148,81 @@ let test_reasoning_included () =
   (check bool) "has reasoning_delta" true has_delta;
   (check bool) "has reasoning_end" true has_end
 
+let test_tool_approval_request () =
+  (* Build a full_stream with Tool_call_delta, Tool_call, then Tool_approval_request *)
+  let full_stream, push_full = Lwt_stream.create () in
+  let tool_call_id = "tc_1" in
+  let tool_name = "dangerous_tool" in
+  let args = `Assoc [ "key", `String "value" ] in
+  List.iter
+    (fun p -> push_full (Some p))
+    Ai_core.Text_stream_part.
+      [
+        Start;
+        Start_step;
+        Tool_call_delta { tool_call_id; tool_name; args_text_delta = "{\"key\":" };
+        Tool_call_delta { tool_call_id; tool_name; args_text_delta = "\"value\"}" };
+        Tool_approval_request { tool_call_id; tool_name; args };
+        Finish_step { finish_reason = Stop; usage = { input_tokens = 5; output_tokens = 3; total_tokens = Some 8 } };
+        Finish { finish_reason = Stop; usage = { input_tokens = 5; output_tokens = 3; total_tokens = Some 8 } };
+      ];
+  push_full None;
+  let result : Ai_core.Stream_text_result.t =
+    {
+      text_stream = Lwt_stream.of_list [];
+      full_stream;
+      partial_output_stream = Lwt_stream.of_list [];
+      usage = Lwt.return { Ai_provider.Usage.input_tokens = 5; output_tokens = 3; total_tokens = Some 8 };
+      finish_reason = Lwt.return Ai_provider.Finish_reason.Stop;
+      steps = Lwt.return [];
+      warnings = [];
+      output = Lwt.return_none;
+    }
+  in
+  let ui_chunks =
+    Lwt_main.run
+      (Lwt_stream.to_list (Ai_core.Stream_text_result.to_ui_message_stream ~message_id:"msg_approval" result))
+  in
+  (* Should have Tool_input_start *)
+  let has_tool_input_start =
+    List.exists
+      (function
+        | Ai_core.Ui_message_chunk.Tool_input_start { tool_call_id = id; tool_name = name } ->
+          String.equal id "tc_1" && String.equal name "dangerous_tool"
+        | _ -> false)
+      ui_chunks
+  in
+  (check bool) "has Tool_input_start" true has_tool_input_start;
+  (* Should have Tool_input_available *)
+  let has_tool_input_available =
+    List.exists
+      (function
+        | Ai_core.Ui_message_chunk.Tool_input_available { tool_call_id = id; tool_name = name; _ } ->
+          String.equal id "tc_1" && String.equal name "dangerous_tool"
+        | _ -> false)
+      ui_chunks
+  in
+  (check bool) "has Tool_input_available" true has_tool_input_available;
+  (* Should have Tool_approval_request *)
+  let has_tool_approval_request =
+    List.exists
+      (function
+        | Ai_core.Ui_message_chunk.Tool_approval_request { tool_call_id = id; tool_name = name; _ } ->
+          String.equal id "tc_1" && String.equal name "dangerous_tool"
+        | _ -> false)
+      ui_chunks
+  in
+  (check bool) "has Tool_approval_request" true has_tool_approval_request;
+  (* Should NOT have Tool_output_available or Tool_output_error *)
+  let has_tool_output =
+    List.exists
+      (function
+        | Ai_core.Ui_message_chunk.Tool_output_available _ | Tool_output_error _ -> true
+        | _ -> false)
+      ui_chunks
+  in
+  (check bool) "no Tool_output chunks" false has_tool_output
+
 let () =
   run "To_ui_stream"
     [
@@ -157,5 +232,6 @@ let () =
           test_case "sse_output" `Quick test_sse_output;
           test_case "reasoning_filtered" `Quick test_reasoning_filtered;
           test_case "reasoning_included" `Quick test_reasoning_included;
+          test_case "tool_approval_request" `Quick test_tool_approval_request;
         ] );
     ]
