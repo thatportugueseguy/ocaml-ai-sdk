@@ -10,6 +10,7 @@ let test_tool_construction () =
       description = Some "Search the web";
       parameters = `Assoc [ "type", `String "object" ];
       execute = (fun _args -> Lwt.return (`String "result"));
+      needs_approval = None;
     }
   in
   (check (option string)) "description" (Some "Search the web") tool.description
@@ -23,6 +24,7 @@ let test_tool_execute () =
         (fun args ->
           let q = (query_args_of_json args).query in
           Lwt.return (`String (Printf.sprintf "Found: %s" q)));
+      needs_approval = None;
     }
   in
   let result = Lwt_main.run (tool.execute (`Assoc [ "query", `String "ocaml" ])) in

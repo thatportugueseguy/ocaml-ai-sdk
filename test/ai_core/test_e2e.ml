@@ -110,6 +110,7 @@ let weather_tool : Ai_core.Core_tool.t =
       (fun args ->
         let city = try (city_args_of_json args).city with _ -> "unknown" in
         Lwt.return (`Assoc [ "city", `String city; "temperature", `Int 22; "condition", `String "sunny" ]));
+    needs_approval = None;
   }
 
 (* === Mock Language_model for streaming tests === *)

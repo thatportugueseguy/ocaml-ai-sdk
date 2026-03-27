@@ -59,6 +59,7 @@ let get_weather : Ai_core.Core_tool.t =
           | _ -> 20, "clear"
         in
         Lwt.return (weather_result_to_json { city; temperature; condition; unit_ = "celsius" }));
+    needs_approval = None;
   }
 
 (* --- Tool: search_web --- *)
@@ -99,6 +100,7 @@ let search_web : Ai_core.Core_tool.t =
             })
         in
         Lwt.return (search_results_to_json { results }));
+    needs_approval = None;
   }
 
 (* --- Tools list --- *)
