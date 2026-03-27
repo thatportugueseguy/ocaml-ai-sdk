@@ -7,10 +7,12 @@
     - Multi-step tool execution (agent loop with max_steps:5)
     - UIMessage stream protocol v1 for useChat() interop
 
-    Set ANTHROPIC_API_KEY environment variable before running.
+    Set ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable before running.
+    Set AI_PROVIDER=openai to use OpenAI (defaults to anthropic).
 
     Usage:
       dune exec examples/chat_server/main.exe
+      AI_PROVIDER=openai dune exec examples/chat_server/main.exe
 
     Test with curl:
       curl -N -X POST http://localhost:28601/chat \
@@ -19,7 +21,11 @@
 
 open Melange_json.Primitives
 
-let model = Ai_provider_anthropic.model "claude-sonnet-4-6"
+let model =
+  match Sys.getenv_opt "AI_PROVIDER" with
+  | Some "openai" -> Ai_provider_openai.model "gpt-4o"
+  | Some "anthropic" | None -> Ai_provider_anthropic.model "claude-sonnet-4-6"
+  | Some other -> failwith (Printf.sprintf "Unknown AI_PROVIDER: %s (expected 'anthropic' or 'openai')" other)
 
 (** Convert a ppx_deriving_jsonschema schema (Yojson.Safe.t) to Yojson.Basic.t
     for use as Core_tool.parameters. *)
@@ -59,7 +65,7 @@ let get_weather : Ai_core.Core_tool.t =
 
 type search_args = {
   query : string;
-  num_results : int option;
+  num_results : int;
 }
 [@@deriving jsonschema, of_json]
 
@@ -78,14 +84,8 @@ let search_web : Ai_core.Core_tool.t =
     parameters = json_of_schema search_args_jsonschema;
     execute =
       (fun args ->
-        let { query; num_results } =
-          try search_args_of_json args with _ -> { query = "unknown"; num_results = None }
-        in
-        let n =
-          match num_results with
-          | Some n -> n
-          | None -> 3
-        in
+        let { query; num_results } = try search_args_of_json args with _ -> { query = "unknown"; num_results = 3 } in
+        let n = num_results in
         let results =
           List.init (min n 3) (fun i ->
             {
@@ -119,7 +119,8 @@ type structured_response = {
 }
 [@@deriving jsonschema]
 
-let output = Ai_core.Output.object_ ~name:"structured_response" ~schema:(json_of_schema structured_response_jsonschema) ()
+let output =
+  Ai_core.Output.object_ ~name:"structured_response" ~schema:(json_of_schema structured_response_jsonschema) ()
 
 (* --- System prompt --- *)
 
@@ -169,7 +170,9 @@ let handler conn req body =
 
 let () =
   let port = 28601 in
-  Printf.printf "Chat agent on http://localhost:%d/chat (max_steps: 5, tools: %d)\n%!" port (List.length tools);
+  let module M = (val model : Ai_provider.Language_model.S) in
+  Printf.printf "Chat agent on http://localhost:%d/chat (provider: %s, model: %s, tools: %d)\n%!" port M.provider
+    M.model_id (List.length tools);
   let server =
     Cohttp_lwt_unix.Server.create ~mode:(`TCP (`Port port)) (Cohttp_lwt_unix.Server.make ~callback:handler ())
   in
