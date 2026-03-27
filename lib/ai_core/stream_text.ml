@@ -114,7 +114,8 @@ let consume_provider_stream ~id_gen ~push ~on_chunk ?(on_text_accumulated = fun 
 
 let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provider.Tool_choice.t option)
   ?(output : (Yojson.Basic.t, Yojson.Basic.t) Output.t option) ?(max_steps = 1) ?max_output_tokens ?temperature ?top_p
-  ?top_k ?stop_sequences ?seed ?headers ?provider_options ?on_step_finish ?on_chunk ?on_finish () =
+  ?top_k ?stop_sequences ?seed ?headers ?provider_options ?on_step_finish ?on_chunk ?on_finish
+  ?(approved_tool_call_ids = []) () =
   (* Build initial messages *)
   let initial_messages = Prompt_builder.resolve_messages ?system ?prompt ?messages () in
   let mode = Output.mode_of_output output in
@@ -207,6 +208,9 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
           let%lwt any_needs_approval =
             Lwt_list.exists_s
               (fun (tc : Generate_text_result.tool_call) ->
+                match List.mem tc.tool_call_id approved_tool_call_ids with
+                | true -> Lwt.return_false
+                | false ->
                 match List.assoc_opt tc.tool_name tools with
                 | Some tool ->
                   (match tool.Core_tool.needs_approval with

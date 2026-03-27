@@ -326,6 +326,76 @@ let test_dynamic_approval_conditional () =
   (check int) "1 tool call" 1 (List.length result.tool_calls);
   (check int) "0 tool results" 0 (List.length result.tool_results)
 
+let test_approved_tool_executes () =
+  (* Model returns tool call for "dangerous_action" on first call, then text on second *)
+  let call_count = ref 0 in
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-approval-exec"
+
+    let generate _opts =
+      incr call_count;
+      match !call_count with
+      | 1 ->
+        Lwt.return
+          {
+            Ai_provider.Generate_result.content =
+              [
+                Ai_provider.Content.Text { text = "Let me check." };
+                Ai_provider.Content.Tool_call
+                  {
+                    tool_call_type = "function";
+                    tool_call_id = "tc_1";
+                    tool_name = "dangerous_action";
+                    args = {|{"target":"prod"}|};
+                  };
+              ];
+            finish_reason = Ai_provider.Finish_reason.Tool_calls;
+            usage = { input_tokens = 10; output_tokens = 15; total_tokens = Some 25 };
+            warnings = [];
+            provider_metadata = Ai_provider.Provider_options.empty;
+            request = { body = `Null };
+            response = { id = Some "r1"; model = Some "mock-approval-exec"; headers = []; body = `Null };
+          }
+      | _ ->
+        Lwt.return
+          {
+            Ai_provider.Generate_result.content = [ Ai_provider.Content.Text { text = "Done!" } ];
+            finish_reason = Ai_provider.Finish_reason.Stop;
+            usage = { input_tokens = 20; output_tokens = 5; total_tokens = Some 25 };
+            warnings = [];
+            provider_metadata = Ai_provider.Provider_options.empty;
+            request = { body = `Null };
+            response = { id = Some "r2"; model = Some "mock-approval-exec"; headers = []; body = `Null };
+          }
+
+    let stream _opts =
+      let stream, push = Lwt_stream.create () in
+      push None;
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  let model = (module M : Ai_provider.Language_model.S) in
+  (* Tool that always needs approval *)
+  let tool =
+    Ai_core.Core_tool.create_with_approval ~description:"Dangerous"
+      ~parameters:(`Assoc [ "type", `String "object" ])
+      ~execute:(fun _ -> Lwt.return (`String "executed"))
+      ()
+  in
+  (* Pass tc_1 as pre-approved — should bypass approval check *)
+  let result =
+    Lwt_main.run
+      (Ai_core.Generate_text.generate_text ~model ~prompt:"Do it"
+         ~tools:[ "dangerous_action", tool ]
+         ~approved_tool_call_ids:[ "tc_1" ] ~max_steps:3 ())
+  in
+  (* Tool should execute — 2 steps *)
+  (check int) "2 steps" 2 (List.length result.steps);
+  (check int) "1 tool result" 1 (List.length result.tool_results);
+  let tr = List.hd result.tool_results in
+  (check bool) "not error" false tr.is_error
+
 let test_prompt_and_messages_conflict () =
   let model = make_text_model "test" in
   let raised = ref false in
@@ -355,6 +425,7 @@ let () =
           test_case "approval_stops_loop" `Quick test_approval_stops_loop;
           test_case "no_approval_executes_normally" `Quick test_no_approval_executes_normally;
           test_case "dynamic_approval_conditional" `Quick test_dynamic_approval_conditional;
+          test_case "approved_tool_executes" `Quick test_approved_tool_executes;
         ] );
       "errors", [ test_case "prompt_and_messages" `Quick test_prompt_and_messages_conflict ];
       ( "output",

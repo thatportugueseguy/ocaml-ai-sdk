@@ -223,6 +223,23 @@ let parse_messages_from_body body_json =
       messages
   with Melange_json.Of_json_error _ -> []
 
+let collect_approved_tool_call_ids body_json =
+  try
+    let { messages } = chat_request_of_json body_json in
+    List.concat_map
+      (fun (msg : chat_message) ->
+        List.filter_map
+          (fun (p : parsed_part) ->
+            match part_type_of_string p.type_, Option.map tool_state_of_string p.state with
+            | Tool_invocation _, Some Approval_responded ->
+              (match p.approved, p.tool_call_id with
+              | Some true, Some id -> Some id
+              | _ -> None)
+            | _ -> None)
+          msg.parts)
+      messages
+  with Melange_json.Of_json_error _ -> []
+
 let cors_headers =
   [
     "access-control-allow-origin", "*";
@@ -264,7 +281,10 @@ let handle_chat ~model ?tools ?max_steps ?system ?output ?send_reasoning ?(cors 
       | Some s -> Ai_provider.Prompt.System { content = s } :: messages
       | None -> messages
     in
-    let result = Stream_text.stream_text ~model ~messages ?tools ?max_steps ?output ?provider_options () in
+    let approved_tool_call_ids = collect_approved_tool_call_ids body_json in
+    let result =
+      Stream_text.stream_text ~model ~messages ?tools ?max_steps ?output ?provider_options ~approved_tool_call_ids ()
+    in
     let sse_stream = Stream_text_result.to_ui_message_sse_stream ?send_reasoning result in
     let extra_headers = if cors then cors_headers else [] in
     make_sse_response ~extra_headers sse_stream

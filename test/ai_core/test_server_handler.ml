@@ -506,6 +506,47 @@ let test_parse_extra_request_fields_ignored () =
   | [ User { content = [ Text { text; _ } ] } ] -> (check string) "text" "Hi" text
   | _ -> fail "expected User message (extra fields ignored)"
 
+let test_collect_approved_ids () =
+  let json =
+    Yojson.Basic.from_string
+      {|{
+    "messages": [{
+      "role": "assistant",
+      "parts": [
+        {
+          "type": "tool-weather",
+          "toolCallId": "tc_1",
+          "toolName": "weather",
+          "state": "approval-responded",
+          "approved": true,
+          "input": {"city": "London"}
+        },
+        {
+          "type": "tool-deploy",
+          "toolCallId": "tc_2",
+          "toolName": "deploy",
+          "state": "approval-responded",
+          "approved": false,
+          "input": {}
+        }
+      ]
+    }]
+  }|}
+  in
+  let ids = Ai_core.Server_handler.collect_approved_tool_call_ids json in
+  (check int) "1 approved" 1 (List.length ids);
+  (check string) "tc_1" "tc_1" (List.hd ids)
+
+let test_collect_approved_ids_empty () =
+  let json = Yojson.Basic.from_string {|{"messages": [{"role": "user", "parts": [{"type": "text", "text": "Hi"}]}]}|} in
+  let ids = Ai_core.Server_handler.collect_approved_tool_call_ids json in
+  (check int) "0 approved" 0 (List.length ids)
+
+let test_collect_approved_ids_invalid_json () =
+  let json = `String "not an object" in
+  let ids = Ai_core.Server_handler.collect_approved_tool_call_ids json in
+  (check int) "0 on invalid" 0 (List.length ids)
+
 let () =
   run "Server_handler"
     [
@@ -551,6 +592,12 @@ let () =
           test_case "output-available null output" `Quick test_parse_tool_output_available_null_output;
           test_case "tool missing fields" `Quick test_parse_tool_missing_fields_skipped;
           test_case "tool error no errorText" `Quick test_parse_tool_error_without_error_text;
+        ] );
+      ( "collect_approved_tool_call_ids",
+        [
+          test_case "approved ids" `Quick test_collect_approved_ids;
+          test_case "no approved ids" `Quick test_collect_approved_ids_empty;
+          test_case "invalid json" `Quick test_collect_approved_ids_invalid_json;
         ] );
       ( "parse_messages: edge cases",
         [

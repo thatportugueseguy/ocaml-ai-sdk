@@ -22,6 +22,16 @@ val cors_headers : (string * string) list
     Returns an empty list on parse failure. Unknown part types are skipped. *)
 val parse_messages_from_body : Yojson.Basic.t -> Ai_provider.Prompt.message list
 
+(** Collect tool call IDs that have been approved by the user.
+
+    Scans the message history for tool invocation parts with
+    [state = "approval-responded"] and [approved = true],
+    returning their [toolCallId] values.  These IDs should be
+    passed to {!Generate_text.generate_text} or {!Stream_text.stream_text}
+    as [~approved_tool_call_ids] so the step loop skips re-checking
+    approval for already-approved tools. *)
+val collect_approved_tool_call_ids : Yojson.Basic.t -> string list
+
 (** Handle an incoming chat request.
 
     Expects a v6 JSON body with a ["messages"] array where each message
