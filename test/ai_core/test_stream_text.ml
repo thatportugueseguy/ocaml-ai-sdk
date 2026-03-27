@@ -213,6 +213,73 @@ let test_stream_without_output () =
   let final_output = Lwt_main.run result.output in
   (check bool) "output is None" true (Option.is_none final_output)
 
+let make_approval_stream_model () =
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-approval-stream"
+    let generate _opts = Lwt.fail_with "not implemented"
+
+    let stream _opts =
+      let stream, push = Lwt_stream.create () in
+      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
+      push (Some (Ai_provider.Stream_part.Text { text = "Let me check." }));
+      push
+        (Some
+           (Ai_provider.Stream_part.Tool_call_delta
+              {
+                tool_call_type = "function";
+                tool_call_id = "tc_1";
+                tool_name = "dangerous_action";
+                args_text_delta = {|{"target":"prod"}|};
+              }));
+      push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = "tc_1" }));
+      push
+        (Some
+           (Ai_provider.Stream_part.Finish
+              { finish_reason = Tool_calls; usage = { input_tokens = 10; output_tokens = 8; total_tokens = Some 18 } }));
+      push None;
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  (module M : Ai_provider.Language_model.S)
+
+let approval_tool : Ai_core.Core_tool.t =
+  Ai_core.Core_tool.create_with_approval ~description:"Dangerous"
+    ~parameters:(`Assoc [ "type", `String "object" ])
+    ~execute:(fun _ -> Lwt.return (`String "executed"))
+    ()
+
+let test_approval_stops_stream_loop () =
+  let model = make_approval_stream_model () in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Do it" ~tools:[ "dangerous_action", approval_tool ] ~max_steps:3 ()
+  in
+  let parts = Lwt_main.run (Lwt_stream.to_list result.full_stream) in
+  (* Should have Tool_approval_request, NO Tool_result *)
+  let has_approval =
+    List.exists
+      (fun p ->
+        match p with
+        | Ai_core.Text_stream_part.Tool_approval_request _ -> true
+        | _ -> false)
+      parts
+  in
+  let has_tool_result =
+    List.exists
+      (fun p ->
+        match p with
+        | Ai_core.Text_stream_part.Tool_result _ -> true
+        | _ -> false)
+      parts
+  in
+  (check bool) "has approval request" true has_approval;
+  (check bool) "no tool result" false has_tool_result;
+  let steps = Lwt_main.run result.steps in
+  (check int) "1 step" 1 (List.length steps);
+  let step = List.hd steps in
+  (check int) "1 tool call" 1 (List.length step.tool_calls);
+  (check int) "0 tool results" 0 (List.length step.tool_results)
+
 let () =
   run "Stream_text"
     [
@@ -222,7 +289,11 @@ let () =
           test_case "full_events" `Quick test_full_stream_events;
           test_case "finish_reason" `Quick test_finish_reason;
         ] );
-      "tools", [ test_case "tool_loop" `Quick test_tool_stream_loop ];
+      ( "tools",
+        [
+          test_case "tool_loop" `Quick test_tool_stream_loop;
+          test_case "approval_stops_stream_loop" `Quick test_approval_stops_stream_loop;
+        ] );
       "callbacks", [ test_case "on_chunk" `Quick test_on_chunk_callback ];
       ( "output",
         [

@@ -203,84 +203,148 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
           | Some Auto | Some Required | Some (Specific _) | None -> true
         in
         if should_continue then begin
-          (* Execute tools *)
-          let%lwt tool_results =
-            Lwt_list.map_s
+          (* Check if any tools need approval *)
+          let%lwt any_needs_approval =
+            Lwt_list.exists_s
               (fun (tc : Generate_text_result.tool_call) ->
                 match List.assoc_opt tc.tool_name tools with
-                | None ->
-                  let tr =
-                    {
-                      Generate_text_result.tool_call_id = tc.tool_call_id;
-                      tool_name = tc.tool_name;
-                      result = `String (Printf.sprintf "Tool '%s' not found" tc.tool_name);
-                      is_error = true;
-                    }
-                  in
-                  emit_event
-                    (Text_stream_part.Tool_result
-                       { tool_call_id = tc.tool_call_id; tool_name = tc.tool_name; result = tr.result; is_error = true });
-                  Lwt.return tr
-                | Some (tool : Core_tool.t) ->
-                  Lwt.catch
-                    (fun () ->
-                      let%lwt result = tool.execute tc.args in
-                      let tr =
-                        {
-                          Generate_text_result.tool_call_id = tc.tool_call_id;
-                          tool_name = tc.tool_name;
-                          result;
-                          is_error = false;
-                        }
-                      in
-                      emit_event
-                        (Text_stream_part.Tool_result
-                           { tool_call_id = tc.tool_call_id; tool_name = tc.tool_name; result; is_error = false });
-                      Lwt.return tr)
-                    (fun exn ->
-                      let err = `String (Printexc.to_string exn) in
-                      let tr =
-                        {
-                          Generate_text_result.tool_call_id = tc.tool_call_id;
-                          tool_name = tc.tool_name;
-                          result = err;
-                          is_error = true;
-                        }
-                      in
-                      emit_event
-                        (Text_stream_part.Tool_result
-                           { tool_call_id = tc.tool_call_id; tool_name = tc.tool_name; result = err; is_error = true });
-                      Lwt.return tr))
+                | Some tool ->
+                  (match tool.Core_tool.needs_approval with
+                  | Some check -> check tc.args
+                  | None -> Lwt.return_false)
+                | None -> Lwt.return_false)
               tool_calls
           in
-          let step : Generate_text_result.step =
-            { text; reasoning; tool_calls; tool_results; finish_reason = fr; usage = step_usage }
-          in
-          Option.iter (fun f -> f step) on_step_finish;
-          emit_event (Text_stream_part.Finish_step { finish_reason = fr; usage = step_usage });
-          (* Build messages for next step *)
-          let assistant_content =
-            let parts = ref [] in
-            if String.length text > 0 then parts := Ai_provider.Content.Text { text } :: !parts;
+          match any_needs_approval with
+          | true ->
+            (* Emit approval requests for tools that need them *)
             List.iter
               (fun (tc : Generate_text_result.tool_call) ->
-                parts :=
-                  Ai_provider.Content.Tool_call
-                    {
-                      tool_call_type = "function";
-                      tool_call_id = tc.tool_call_id;
-                      tool_name = tc.tool_name;
-                      args = Yojson.Basic.to_string tc.args;
-                    }
-                  :: !parts)
+                match List.assoc_opt tc.tool_name tools with
+                | Some tool when Option.is_some tool.Core_tool.needs_approval ->
+                  emit_event
+                    (Text_stream_part.Tool_approval_request
+                       { tool_call_id = tc.tool_call_id; tool_name = tc.tool_name; args = tc.args })
+                | _ -> ())
               tool_calls;
-            List.rev !parts
-          in
-          let updated_messages =
-            Prompt_builder.append_assistant_and_tool_results ~messages:current_messages ~assistant_content ~tool_results
-          in
-          step_loop ~current_messages:updated_messages ~steps:(step :: steps) ~total_usage:new_total
-            ~step_num:(step_num + 1)
+            (* Finish step and stream *)
+            let step : Generate_text_result.step =
+              { text; reasoning; tool_calls; tool_results = []; finish_reason = fr; usage = step_usage }
+            in
+            Option.iter (fun f -> f step) on_step_finish;
+            emit_event (Text_stream_part.Finish_step { finish_reason = fr; usage = step_usage });
+            emit_event (Text_stream_part.Finish { finish_reason = fr; usage = new_total });
+            push_full None;
+            let all_steps = List.rev (step :: steps) in
+            let parsed_output = Output.parse_output output all_steps in
+            partial_output_push None;
+            Lwt.wakeup_later usage_resolver new_total;
+            Lwt.wakeup_later finish_resolver fr;
+            Lwt.wakeup_later steps_resolver all_steps;
+            Lwt.wakeup_later output_resolver parsed_output;
+            (match on_finish with
+            | Some f ->
+              let all_tool_calls = List.concat_map (fun (s : Generate_text_result.step) -> s.tool_calls) all_steps in
+              f
+                {
+                  Generate_text_result.text = Generate_text_result.join_text all_steps;
+                  reasoning = Generate_text_result.join_reasoning all_steps;
+                  tool_calls = all_tool_calls;
+                  tool_results = [];
+                  steps = all_steps;
+                  finish_reason = fr;
+                  usage = new_total;
+                  response = { id = None; model = None; headers = []; body = `Null };
+                  warnings = [];
+                  output = parsed_output;
+                }
+            | None -> ());
+            Lwt.return_unit
+          | false ->
+            (* Execute tools *)
+            let%lwt tool_results =
+              Lwt_list.map_s
+                (fun (tc : Generate_text_result.tool_call) ->
+                  match List.assoc_opt tc.tool_name tools with
+                  | None ->
+                    let tr =
+                      {
+                        Generate_text_result.tool_call_id = tc.tool_call_id;
+                        tool_name = tc.tool_name;
+                        result = `String (Printf.sprintf "Tool '%s' not found" tc.tool_name);
+                        is_error = true;
+                      }
+                    in
+                    emit_event
+                      (Text_stream_part.Tool_result
+                         {
+                           tool_call_id = tc.tool_call_id;
+                           tool_name = tc.tool_name;
+                           result = tr.result;
+                           is_error = true;
+                         });
+                    Lwt.return tr
+                  | Some (tool : Core_tool.t) ->
+                    Lwt.catch
+                      (fun () ->
+                        let%lwt result = tool.execute tc.args in
+                        let tr =
+                          {
+                            Generate_text_result.tool_call_id = tc.tool_call_id;
+                            tool_name = tc.tool_name;
+                            result;
+                            is_error = false;
+                          }
+                        in
+                        emit_event
+                          (Text_stream_part.Tool_result
+                             { tool_call_id = tc.tool_call_id; tool_name = tc.tool_name; result; is_error = false });
+                        Lwt.return tr)
+                      (fun exn ->
+                        let err = `String (Printexc.to_string exn) in
+                        let tr =
+                          {
+                            Generate_text_result.tool_call_id = tc.tool_call_id;
+                            tool_name = tc.tool_name;
+                            result = err;
+                            is_error = true;
+                          }
+                        in
+                        emit_event
+                          (Text_stream_part.Tool_result
+                             { tool_call_id = tc.tool_call_id; tool_name = tc.tool_name; result = err; is_error = true });
+                        Lwt.return tr))
+                tool_calls
+            in
+            let step : Generate_text_result.step =
+              { text; reasoning; tool_calls; tool_results; finish_reason = fr; usage = step_usage }
+            in
+            Option.iter (fun f -> f step) on_step_finish;
+            emit_event (Text_stream_part.Finish_step { finish_reason = fr; usage = step_usage });
+            (* Build messages for next step *)
+            let assistant_content =
+              let parts = ref [] in
+              if String.length text > 0 then parts := Ai_provider.Content.Text { text } :: !parts;
+              List.iter
+                (fun (tc : Generate_text_result.tool_call) ->
+                  parts :=
+                    Ai_provider.Content.Tool_call
+                      {
+                        tool_call_type = "function";
+                        tool_call_id = tc.tool_call_id;
+                        tool_name = tc.tool_name;
+                        args = Yojson.Basic.to_string tc.args;
+                      }
+                    :: !parts)
+                tool_calls;
+              List.rev !parts
+            in
+            let updated_messages =
+              Prompt_builder.append_assistant_and_tool_results ~messages:current_messages ~assistant_content
+                ~tool_results
+            in
+            step_loop ~current_messages:updated_messages ~steps:(step :: steps) ~total_usage:new_total
+              ~step_num:(step_num + 1)
         end
         else begin
           (* Final step *)
