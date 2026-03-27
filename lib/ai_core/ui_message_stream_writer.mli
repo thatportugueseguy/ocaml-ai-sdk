@@ -20,9 +20,7 @@ val write : t -> Ui_message_chunk.t -> unit
     - [Lwt.catch] wraps the consumer so exceptions become [Error] chunks
       instead of hitting [Lwt.async_exception_hook].
     - An in-flight counter ensures the output stream stays open until all
-      merge tasks complete — no writes to a closed stream.
-    - This follows the same pattern used in [Ui_message_stream.stream_to_sse],
-      [Stream_text.stream_text], and provider [convert_stream] modules. *)
+      merge tasks complete — no writes to a closed stream. *)
 val merge : t -> Ui_message_chunk.t Lwt_stream.t -> unit
 
 (** Create a composable UIMessage chunk stream.
