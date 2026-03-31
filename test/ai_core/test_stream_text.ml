@@ -348,16 +348,43 @@ let test_approved_tool_executes_stream () =
       ~pending_tool_approvals:[ pending ] ~max_steps:3 ()
   in
   let parts = Lwt_main.run (Lwt_stream.to_list result.full_stream) in
-  (* Initial step should execute the tool directly *)
+  (* Initial step should emit Tool_call before Tool_result *)
+  let has_tool_call =
+    List.exists
+      (fun p ->
+        match p with
+        | Ai_core.Text_stream_part.Tool_call { tool_call_id = "tc_1"; _ } -> true
+        | _ -> false)
+      parts
+  in
   let has_tool_result =
     List.exists
       (fun p ->
         match p with
-        | Ai_core.Text_stream_part.Tool_result _ -> true
+        | Ai_core.Text_stream_part.Tool_result { tool_call_id = "tc_1"; _ } -> true
         | _ -> false)
       parts
   in
+  (check bool) "has tool call" true has_tool_call;
   (check bool) "has tool result" true has_tool_result;
+  (* Verify Tool_call appears before Tool_result *)
+  let tool_call_idx =
+    List.mapi (fun i p -> (i, p)) parts
+    |> List.find_map (fun (i, p) ->
+      match p with
+      | Ai_core.Text_stream_part.Tool_call { tool_call_id = "tc_1"; _ } -> Some i
+      | _ -> None)
+  in
+  let tool_result_idx =
+    List.mapi (fun i p -> (i, p)) parts
+    |> List.find_map (fun (i, p) ->
+      match p with
+      | Ai_core.Text_stream_part.Tool_result { tool_call_id = "tc_1"; _ } -> Some i
+      | _ -> None)
+  in
+  (match tool_call_idx, tool_result_idx with
+  | Some ci, Some ri -> (check bool) "tool_call before tool_result" true (ci < ri)
+  | _ -> Alcotest.fail "expected both tool_call and tool_result");
   let steps = Lwt_main.run result.steps in
   (* Initial step (tool execution) + LLM step *)
   (check int) "2 steps" 2 (List.length steps)
