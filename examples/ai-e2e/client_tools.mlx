@@ -1,0 +1,77 @@
+let s = React.string
+
+let container_style =
+  ReactDOM.Style.make ~display:"flex" ~flexDirection:"column" ~height:"100vh" ~padding:"24px" ~maxWidth:"768px"
+    ~margin:"0 auto" ~width:"100%" ()
+
+let header_style =
+  ReactDOM.Style.make ~marginBottom:"16px" ~paddingBottom:"16px" ~borderBottom:"1px solid #e5e7eb" ()
+
+let title_style = ReactDOM.Style.make ~fontSize:"18px" ~fontWeight:"700" ~color:"#111827" ()
+
+let description_style = ReactDOM.Style.make ~fontSize:"13px" ~color:"#6b7280" ~marginTop:"4px" ()
+
+let banner_style =
+  ReactDOM.Style.make ~padding:"16px" ~borderRadius:"8px" ~background:"#fffbeb" ~border:"1px solid #fde68a"
+    ~marginTop:"16px" ()
+
+let banner_title_style = ReactDOM.Style.make ~fontWeight:"600" ~fontSize:"14px" ~color:"#92400e" ~marginBottom:"8px" ()
+
+let banner_text_style = ReactDOM.Style.make ~fontSize:"13px" ~color:"#78350f" ~lineHeight:"1.5" ()
+
+let code_style =
+  ReactDOM.Style.make ~marginTop:"16px" ~padding:"16px" ~borderRadius:"8px" ~background:"#f9fafb"
+    ~border:"1px solid #e5e7eb" ~fontFamily:"ui-monospace, monospace" ~fontSize:"12px" ~color:"#374151"
+    ~whiteSpace:"pre-wrap" ~overflowX:"auto" ()
+
+(* Client-side tools demo: browser provides tool results via user interaction.
+   Needs:
+   - Tool approval protocol (needsApproval flag, approval-request stream event)
+   - Or: proper client-side tool execution where onToolCall returns the result
+   - The addToolOutput + sendAutomaticallyWhen approach doesn't round-trip
+     correctly through parse_messages_from_body yet *)
+
+[@react.component]
+let make () =
+  <div style=container_style>
+    <div style=header_style>
+      <div style=title_style> (s "Client-side Tools") </div>
+      <div style=description_style> (s "Browser-side tool execution with user confirmation.") </div>
+    </div>
+    <div style=banner_style>
+      <div style=banner_title_style> (s "Coming Soon") </div>
+      <div style=banner_text_style>
+        (s "This demo requires the tool approval protocol or proper client-side tool execution support. ")
+        (s "The UI patterns (approval dialog, tool output submission) are implemented — ")
+        (s "the missing piece is the server-side protocol for pausing execution and resuming after client input.")
+      </div>
+    </div>
+    <div style=code_style>
+      (s {|(* Planned implementation using tool approval:
+
+(* Server defines tools with needsApproval *)
+let get_location_tool = { ...;  needsApproval = true }
+
+(* When the model calls the tool, server sends approval-request *)
+(* Client shows confirmation dialog *)
+let render_controls (chat : Use_chat.t) =
+  match pending_approval with
+  | Some approval ->
+    <div style=pending_style>
+      <div> (s "Share your location?") </div>
+      <button onClick=(fun _ ->
+        Use_chat.add_tool_approval_response chat
+          (Use_chat.make_tool_approval_response
+            ~id:approval.id ~approved:true ()))>
+        (s "Approve")
+      </button>
+    </div>
+  | None -> React.null
+
+(* Alternative: onToolCall returns a Promise<result> *)
+let on_tool_call json =
+  let promise, resolve = make_resolvable () in
+  set_pending (fun _ -> Some { ...; resolve });
+  promise *)|})
+    </div>
+  </div>

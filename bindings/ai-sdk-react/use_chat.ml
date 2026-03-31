@@ -91,9 +91,10 @@ external make_options :
   ?messages:ui_message array ->
   ?transport:transport ->
   ?onError:(Js.Exn.t -> unit) ->
-  ?onToolCall:(Js.Json.t -> unit) ->
+  ?onToolCall:(Js.Json.t -> unit Js.Promise.t) ->
   ?onFinish:(Js.Json.t -> unit) ->
   ?onData:(Js.Json.t -> unit) ->
+  ?sendAutomaticallyWhen:(Js.Json.t -> bool Js.Promise.t) ->
   ?experimental_throttle:int ->
   ?resume:bool ->
   unit ->
@@ -102,9 +103,10 @@ external make_options :
 
 external use_chat_raw : options option -> t = "useChat" [@@mel.module "@ai-sdk/react"]
 
-let use_chat ?id ?messages ?transport ?on_error ?on_tool_call ?on_finish ?on_data ?experimental_throttle ?resume () =
+let use_chat ?id ?messages ?transport ?on_error ?on_tool_call ?on_finish ?on_data ?send_automatically_when
+  ?experimental_throttle ?resume () =
   let opts =
     make_options ?id ?messages ?transport ?onError:on_error ?onToolCall:on_tool_call ?onFinish:on_finish ?onData:on_data
-      ?experimental_throttle ?resume ()
+      ?sendAutomaticallyWhen:send_automatically_when ?experimental_throttle ?resume ()
   in
   use_chat_raw (Some opts)

@@ -1,0 +1,7 @@
+let _x = ()
+
+[@react.component]
+let make () =
+  Chat_layout.render ~title:"Tool Use"
+    ~description:"Server-side tool execution with weather and search tools."
+    ~endpoint:"/api/chat/tools" ()
