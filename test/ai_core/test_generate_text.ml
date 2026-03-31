@@ -397,6 +397,74 @@ let test_approved_tool_executes () =
   | tr :: _ -> (check bool) "not error" false tr.is_error
   | [] -> Alcotest.fail "expected at least one tool result"
 
+(* Mock model that returns two tool calls — one needing approval, one not *)
+let make_mixed_tool_call_model () =
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-mixed"
+
+    let generate _opts =
+      Lwt.return
+        {
+          Ai_provider.Generate_result.content =
+            [
+              Ai_provider.Content.Text { text = "Let me do both." };
+              Ai_provider.Content.Tool_call
+                {
+                  tool_call_type = "function";
+                  tool_call_id = "tc_safe";
+                  tool_name = "safe_action";
+                  args = {|{"query":"test"}|};
+                };
+              Ai_provider.Content.Tool_call
+                {
+                  tool_call_type = "function";
+                  tool_call_id = "tc_danger";
+                  tool_name = "dangerous_action";
+                  args = {|{"target":"prod"}|};
+                };
+            ];
+          finish_reason = Ai_provider.Finish_reason.Tool_calls;
+          usage = { input_tokens = 10; output_tokens = 20; total_tokens = Some 30 };
+          warnings = [];
+          provider_metadata = Ai_provider.Provider_options.empty;
+          request = { body = `Null };
+          response = { id = Some "r1"; model = Some "mock-mixed"; headers = []; body = `Null };
+        }
+
+    let stream _opts =
+      let stream, push = Lwt_stream.create () in
+      push None;
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  (module M : Ai_provider.Language_model.S)
+
+let test_mixed_tools_approval_blocks_all () =
+  let model = make_mixed_tool_call_model () in
+  let safe_tool =
+    Ai_core.Core_tool.create ~description:"Safe"
+      ~parameters:(`Assoc [ "type", `String "object" ])
+      ~execute:(fun _ -> Lwt.return (`String "safe result"))
+      ()
+  in
+  let dangerous_tool =
+    Ai_core.Core_tool.create_with_approval ~description:"Dangerous"
+      ~parameters:(`Assoc [ "type", `String "object" ])
+      ~execute:(fun _ -> Lwt.return (`String "dangerous result"))
+      ()
+  in
+  let result =
+    Lwt_main.run
+      (Ai_core.Generate_text.generate_text ~model ~prompt:"Do both"
+         ~tools:[ "safe_action", safe_tool; "dangerous_action", dangerous_tool ]
+         ~max_steps:3 ())
+  in
+  (* One tool needs approval — entire step blocked, no tools execute *)
+  (check int) "1 step" 1 (List.length result.steps);
+  (check int) "2 tool calls" 2 (List.length result.tool_calls);
+  (check int) "0 tool results" 0 (List.length result.tool_results)
+
 let test_prompt_and_messages_conflict () =
   let model = make_text_model "test" in
   let raised = ref false in
@@ -427,6 +495,7 @@ let () =
           test_case "no_approval_executes_normally" `Quick test_no_approval_executes_normally;
           test_case "dynamic_approval_conditional" `Quick test_dynamic_approval_conditional;
           test_case "approved_tool_executes" `Quick test_approved_tool_executes;
+          test_case "mixed_tools_approval_blocks_all" `Quick test_mixed_tools_approval_blocks_all;
         ] );
       "errors", [ test_case "prompt_and_messages" `Quick test_prompt_and_messages_conflict ];
       ( "output",
