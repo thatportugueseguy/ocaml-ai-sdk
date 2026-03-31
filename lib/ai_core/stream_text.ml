@@ -120,7 +120,7 @@ let consume_provider_stream ~id_gen ~push ~on_chunk ?(on_text_accumulated = fun 
 let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provider.Tool_choice.t option)
   ?(output : (Yojson.Basic.t, Yojson.Basic.t) Output.t option) ?(max_steps = 1) ?max_output_tokens ?temperature ?top_p
   ?top_k ?stop_sequences ?seed ?headers ?provider_options ?on_step_finish ?on_chunk ?on_finish
-  ?(approved_tool_call_ids = []) () =
+  ?(pending_tool_approvals = []) () =
   (* Build initial messages *)
   let initial_messages = Prompt_builder.resolve_messages ?system ?prompt ?messages () in
   let mode = Output.mode_of_output output in
@@ -214,9 +214,6 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
             Lwt_list.map_s
               (fun (tc : Generate_text_result.tool_call) ->
                 let%lwt needs =
-                  match List.mem tc.tool_call_id approved_tool_call_ids with
-                  | true -> Lwt.return_false
-                  | false ->
                   match List.assoc_opt tc.tool_name tools with
                   | Some tool ->
                     (match tool.Core_tool.needs_approval with
@@ -401,9 +398,145 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
     in
     Lwt.catch
       (fun () ->
-        step_loop ~current_messages:initial_messages ~steps:[]
+        (* Execute pending tool approvals before starting the LLM step loop *)
+        let%lwt start_messages, initial_steps =
+          match pending_tool_approvals with
+          | [] -> Lwt.return (initial_messages, [])
+          | approvals ->
+            emit_event Text_stream_part.Start_step;
+            let%lwt tool_results =
+              Lwt_list.map_s
+                (fun (ta : Generate_text_result.pending_tool_approval) ->
+                  match ta.approved with
+                  | false ->
+                    let tr =
+                      {
+                        Generate_text_result.tool_call_id = ta.tool_call_id;
+                        tool_name = ta.tool_name;
+                        result = `String "Tool execution denied";
+                        is_error = true;
+                      }
+                    in
+                    emit_event
+                      (Text_stream_part.Tool_result
+                         {
+                           tool_call_id = ta.tool_call_id;
+                           tool_name = ta.tool_name;
+                           result = tr.result;
+                           is_error = true;
+                         });
+                    Lwt.return tr
+                  | true ->
+                    (match List.assoc_opt ta.tool_name tools with
+                    | None ->
+                      let tr =
+                        {
+                          Generate_text_result.tool_call_id = ta.tool_call_id;
+                          tool_name = ta.tool_name;
+                          result = `String (Printf.sprintf "Tool '%s' not found" ta.tool_name);
+                          is_error = true;
+                        }
+                      in
+                      emit_event
+                        (Text_stream_part.Tool_result
+                           {
+                             tool_call_id = ta.tool_call_id;
+                             tool_name = ta.tool_name;
+                             result = tr.result;
+                             is_error = true;
+                           });
+                      Lwt.return tr
+                    | Some (tool : Core_tool.t) ->
+                      Lwt.catch
+                        (fun () ->
+                          let%lwt result = tool.execute ta.args in
+                          let tr =
+                            {
+                              Generate_text_result.tool_call_id = ta.tool_call_id;
+                              tool_name = ta.tool_name;
+                              result;
+                              is_error = false;
+                            }
+                          in
+                          emit_event
+                            (Text_stream_part.Tool_result
+                               {
+                                 tool_call_id = ta.tool_call_id;
+                                 tool_name = ta.tool_name;
+                                 result;
+                                 is_error = false;
+                               });
+                          Lwt.return tr)
+                        (fun exn ->
+                          let err = `String (Printexc.to_string exn) in
+                          let tr =
+                            {
+                              Generate_text_result.tool_call_id = ta.tool_call_id;
+                              tool_name = ta.tool_name;
+                              result = err;
+                              is_error = true;
+                            }
+                          in
+                          emit_event
+                            (Text_stream_part.Tool_result
+                               {
+                                 tool_call_id = ta.tool_call_id;
+                                 tool_name = ta.tool_name;
+                                 result = err;
+                                 is_error = true;
+                               });
+                          Lwt.return tr)))
+                approvals
+            in
+            let tool_calls =
+              List.map
+                (fun (ta : Generate_text_result.pending_tool_approval) ->
+                  {
+                    Generate_text_result.tool_call_id = ta.tool_call_id;
+                    tool_name = ta.tool_name;
+                    args = ta.args;
+                  })
+                approvals
+            in
+            let step : Generate_text_result.step =
+              {
+                text = "";
+                reasoning = "";
+                tool_calls;
+                tool_results;
+                finish_reason = Ai_provider.Finish_reason.Tool_calls;
+                usage = { input_tokens = 0; output_tokens = 0; total_tokens = Some 0 };
+              }
+            in
+            Option.iter (fun f -> f step) on_step_finish;
+            emit_event
+              (Text_stream_part.Finish_step
+                 {
+                   finish_reason = Ai_provider.Finish_reason.Tool_calls;
+                   usage = { input_tokens = 0; output_tokens = 0; total_tokens = Some 0 };
+                 });
+            (* Append tool results to messages for the next LLM call *)
+            let tool_result_parts =
+              List.map
+                (fun (tr : Generate_text_result.tool_result) ->
+                  {
+                    Ai_provider.Prompt.tool_call_id = tr.tool_call_id;
+                    tool_name = tr.tool_name;
+                    result = tr.result;
+                    is_error = tr.is_error;
+                    content = [];
+                    provider_options = Ai_provider.Provider_options.empty;
+                  })
+                tool_results
+            in
+            let updated_messages =
+              initial_messages @ [ Ai_provider.Prompt.Tool { content = tool_result_parts } ]
+            in
+            Lwt.return (updated_messages, [ step ])
+        in
+        step_loop ~current_messages:start_messages ~steps:(List.rev initial_steps)
           ~total_usage:{ input_tokens = 0; output_tokens = 0; total_tokens = Some 0 }
-          ~step_num:1)
+          ~step_num:(1 + List.length initial_steps))
       (fun exn ->
         let msg = Printexc.to_string exn in
         push_full (Some (Text_stream_part.Error { error = msg }));

@@ -22,15 +22,13 @@ val cors_headers : (string * string) list
     Returns an empty list on parse failure. Unknown part types are skipped. *)
 val parse_messages_from_body : Yojson.Basic.t -> Ai_provider.Prompt.message list
 
-(** Collect tool call IDs that have been approved by the user.
+(** Collect pending tool approvals from re-submitted messages.
 
     Scans the message history for tool invocation parts with
-    [state = "approval-responded"] and [approved = true],
-    returning their [toolCallId] values.  These IDs should be
-    passed to {!Generate_text.generate_text} or {!Stream_text.stream_text}
-    as [~approved_tool_call_ids] so the step loop skips re-checking
-    approval for already-approved tools. *)
-val collect_approved_tool_call_ids : Yojson.Basic.t -> string list
+    [state = "approval-responded"], returning full tool call details.
+    Approved tools should be executed directly before calling the LLM;
+    denied tools should produce error results. *)
+val collect_pending_tool_approvals : Yojson.Basic.t -> Generate_text_result.pending_tool_approval list
 
 (** Handle an incoming chat request.
 

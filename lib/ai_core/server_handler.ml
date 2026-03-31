@@ -223,7 +223,7 @@ let parse_messages_from_body body_json =
       messages
   with Melange_json.Of_json_error _ -> []
 
-let collect_approved_tool_call_ids body_json =
+let collect_pending_tool_approvals body_json =
   try
     let { messages } = chat_request_of_json body_json in
     List.concat_map
@@ -232,8 +232,14 @@ let collect_approved_tool_call_ids body_json =
           (fun (p : parsed_part) ->
             match part_type_of_string p.type_, Option.map tool_state_of_string p.state with
             | Tool_invocation _, Some Approval_responded ->
-              (match p.approved, p.tool_call_id with
-              | Some true, Some id -> Some id
+              (match p.tool_call_id, p.tool_name, p.approved with
+              | Some tool_call_id, Some tool_name, Some approved ->
+                let args =
+                  match p.input with
+                  | Some json -> (json : Melange_json.t :> Yojson.Basic.t)
+                  | None -> `Null
+                in
+                Some { Generate_text_result.tool_call_id; tool_name; args; approved }
               | _ -> None)
             | _ -> None)
           msg.parts)
@@ -281,9 +287,9 @@ let handle_chat ~model ?tools ?max_steps ?system ?output ?send_reasoning ?(cors 
       | Some s -> Ai_provider.Prompt.System { content = s } :: messages
       | None -> messages
     in
-    let approved_tool_call_ids = collect_approved_tool_call_ids body_json in
+    let pending_tool_approvals = collect_pending_tool_approvals body_json in
     let result =
-      Stream_text.stream_text ~model ~messages ?tools ?max_steps ?output ?provider_options ~approved_tool_call_ids ()
+      Stream_text.stream_text ~model ~messages ?tools ?max_steps ?output ?provider_options ~pending_tool_approvals ()
     in
     let sse_stream = Stream_text_result.to_ui_message_sse_stream ?send_reasoning result in
     let extra_headers = if cors then cors_headers else [] in

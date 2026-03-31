@@ -24,6 +24,6 @@ val stream_text :
   ?on_step_finish:(Generate_text_result.step -> unit) ->
   ?on_chunk:(Text_stream_part.t -> unit) ->
   ?on_finish:(Generate_text_result.t -> unit) ->
-  ?approved_tool_call_ids:string list ->
+  ?pending_tool_approvals:Generate_text_result.pending_tool_approval list ->
   unit ->
   Stream_text_result.t

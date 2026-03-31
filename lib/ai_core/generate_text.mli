@@ -21,6 +21,6 @@ val generate_text :
   ?headers:(string * string) list ->
   ?provider_options:Ai_provider.Provider_options.t ->
   ?on_step_finish:(Generate_text_result.step -> unit) ->
-  ?approved_tool_call_ids:string list ->
+  ?pending_tool_approvals:Generate_text_result.pending_tool_approval list ->
   unit ->
   Generate_text_result.t Lwt.t

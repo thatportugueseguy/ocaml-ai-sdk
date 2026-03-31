@@ -506,7 +506,7 @@ let test_parse_extra_request_fields_ignored () =
   | [ User { content = [ Text { text; _ } ] } ] -> (check string) "text" "Hi" text
   | _ -> fail "expected User message (extra fields ignored)"
 
-let test_collect_approved_ids () =
+let test_collect_pending_approvals () =
   let json =
     Yojson.Basic.from_string
       {|{
@@ -533,21 +533,26 @@ let test_collect_approved_ids () =
     }]
   }|}
   in
-  let ids = Ai_core.Server_handler.collect_approved_tool_call_ids json in
-  (check int) "1 approved" 1 (List.length ids);
-  match ids with
-  | id :: _ -> (check string) "tc_1" "tc_1" id
-  | [] -> Alcotest.fail "expected at least one approved id"
+  let approvals = Ai_core.Server_handler.collect_pending_tool_approvals json in
+  (check int) "2 approvals" 2 (List.length approvals);
+  match approvals with
+  | a1 :: a2 :: _ ->
+    (check string) "tc_1 id" "tc_1" a1.tool_call_id;
+    (check string) "tc_1 name" "weather" a1.tool_name;
+    (check bool) "tc_1 approved" true a1.approved;
+    (check string) "tc_2 id" "tc_2" a2.tool_call_id;
+    (check bool) "tc_2 denied" false a2.approved
+  | _ -> Alcotest.fail "expected 2 approvals"
 
-let test_collect_approved_ids_empty () =
+let test_collect_pending_approvals_empty () =
   let json = Yojson.Basic.from_string {|{"messages": [{"role": "user", "parts": [{"type": "text", "text": "Hi"}]}]}|} in
-  let ids = Ai_core.Server_handler.collect_approved_tool_call_ids json in
-  (check int) "0 approved" 0 (List.length ids)
+  let approvals = Ai_core.Server_handler.collect_pending_tool_approvals json in
+  (check int) "0 approvals" 0 (List.length approvals)
 
-let test_collect_approved_ids_invalid_json () =
+let test_collect_pending_approvals_invalid_json () =
   let json = `String "not an object" in
-  let ids = Ai_core.Server_handler.collect_approved_tool_call_ids json in
-  (check int) "0 on invalid" 0 (List.length ids)
+  let approvals = Ai_core.Server_handler.collect_pending_tool_approvals json in
+  (check int) "0 on invalid" 0 (List.length approvals)
 
 let () =
   run "Server_handler"
@@ -595,11 +600,11 @@ let () =
           test_case "tool missing fields" `Quick test_parse_tool_missing_fields_skipped;
           test_case "tool error no errorText" `Quick test_parse_tool_error_without_error_text;
         ] );
-      ( "collect_approved_tool_call_ids",
+      ( "collect_pending_tool_approvals",
         [
-          test_case "approved ids" `Quick test_collect_approved_ids;
-          test_case "no approved ids" `Quick test_collect_approved_ids_empty;
-          test_case "invalid json" `Quick test_collect_approved_ids_invalid_json;
+          test_case "pending approvals" `Quick test_collect_pending_approvals;
+          test_case "no approvals" `Quick test_collect_pending_approvals_empty;
+          test_case "invalid json" `Quick test_collect_pending_approvals_invalid_json;
         ] );
       ( "parse_messages: edge cases",
         [

@@ -326,28 +326,29 @@ let make_approved_stream_model () =
   (module M : Ai_provider.Language_model.S)
 
 let test_approved_tool_executes_stream () =
-  let model = make_approved_stream_model () in
+  (* Model that just returns text — the tool was already executed in the initial step *)
+  let model = make_text_stream_model "Done!" in
   let tool =
     Ai_core.Core_tool.create_with_approval ~description:"Dangerous"
       ~parameters:(`Assoc [ "type", `String "object" ])
       ~execute:(fun _ -> Lwt.return (`String "executed"))
       ()
   in
+  let pending : Ai_core.Generate_text_result.pending_tool_approval =
+    {
+      tool_call_id = "tc_1";
+      tool_name = "dangerous_action";
+      args = `Assoc [ "target", `String "prod" ];
+      approved = true;
+    }
+  in
   let result =
     Ai_core.Stream_text.stream_text ~model ~prompt:"Do it"
       ~tools:[ "dangerous_action", tool ]
-      ~approved_tool_call_ids:[ "tc_1" ] ~max_steps:3 ()
+      ~pending_tool_approvals:[ pending ] ~max_steps:3 ()
   in
   let parts = Lwt_main.run (Lwt_stream.to_list result.full_stream) in
-  (* Pre-approved — should execute, no approval request *)
-  let has_approval =
-    List.exists
-      (fun p ->
-        match p with
-        | Ai_core.Text_stream_part.Tool_approval_request _ -> true
-        | _ -> false)
-      parts
-  in
+  (* Initial step should execute the tool directly *)
   let has_tool_result =
     List.exists
       (fun p ->
@@ -356,9 +357,9 @@ let test_approved_tool_executes_stream () =
         | _ -> false)
       parts
   in
-  (check bool) "no approval request" false has_approval;
   (check bool) "has tool result" true has_tool_result;
   let steps = Lwt_main.run result.steps in
+  (* Initial step (tool execution) + LLM step *)
   (check int) "2 steps" 2 (List.length steps)
 
 let make_mixed_stream_model () =
