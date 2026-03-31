@@ -45,10 +45,10 @@ let empty_style =
 let make () =
   let { Provider_context.provider; _ } = Provider_context.use_provider () in
   let input, set_input = React.useState (fun () -> "") in
-  let api =
-    "/api/chat/completion?provider=" ^ Provider_context.provider_to_string provider
+  let headers =
+    Js.Dict.fromArray [| "X-Provider", Provider_context.provider_to_string provider |]
   in
-  let h = Use_completion.use_completion ~api ~stream_protocol:"text" () in
+  let h = Use_completion.use_completion ~api:"/api/chat/completion" ~headers ~stream_protocol:"text" () in
   let completion_text = Use_completion.completion h in
   let is_loading = Use_completion.is_loading h in
   <div style=container_style>

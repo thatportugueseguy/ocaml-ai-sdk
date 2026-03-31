@@ -75,6 +75,23 @@ val use_chat :
   ?messages:ui_message array ->
   ?transport:transport ->
   ?on_error:(Js.Exn.t -> unit) ->
+  ?on_tool_call:(Js.Json.t -> unit) ->
+  ?on_finish:(Js.Json.t -> unit) ->
+  ?on_data:(Js.Json.t -> unit) ->
+  ?send_automatically_when:(Js.Json.t -> bool Js.Promise.t) ->
+  ?experimental_throttle:int ->
+  ?resume:bool ->
+  unit ->
+  t
+
+(** Like {!use_chat} but [on_tool_call] returns a [Promise].
+    Use when you need the SDK to wait for the tool call handler before continuing
+    (e.g. async client-side tool resolution). *)
+val use_chat_async_tool_call :
+  ?id:string ->
+  ?messages:ui_message array ->
+  ?transport:transport ->
+  ?on_error:(Js.Exn.t -> unit) ->
   ?on_tool_call:(Js.Json.t -> unit Js.Promise.t) ->
   ?on_finish:(Js.Json.t -> unit) ->
   ?on_data:(Js.Json.t -> unit) ->

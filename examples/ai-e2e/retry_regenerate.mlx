@@ -15,7 +15,7 @@ let render_controls (chat : Use_chat.t) =
   let has_assistant_message =
     Array.to_list messages
     |> List.exists (fun msg ->
-      match ui_message_role msg with
+      match Message.role msg with
       | Assistant -> true
       | User | System -> false)
   in
@@ -24,14 +24,13 @@ let render_controls (chat : Use_chat.t) =
     | Ready -> true
     | Submitted | Streaming | Error -> false
   in
-  match has_assistant_message && is_ready with
-  | true ->
+  if has_assistant_message && is_ready then
     <div style=controls_style>
       <button style=regenerate_button_style onClick=(fun _ -> Use_chat.regenerate chat)>
         (s "Regenerate")
       </button>
     </div>
-  | false -> React.null
+  else React.null
 
 [@react.component]
 let make () =

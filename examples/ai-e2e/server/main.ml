@@ -15,7 +15,8 @@ open Melange_json.Primitives
 let model_of_provider provider =
   match provider with
   | "openai" -> Ai_provider_openai.model "gpt-4o"
-  | _ -> Ai_provider_anthropic.model "claude-sonnet-4-6"
+  | "anthropic" -> Ai_provider_anthropic.model "claude-sonnet-4-6"
+  | unknown -> failwith (Printf.sprintf "Unknown provider: %s (expected 'anthropic' or 'openai')" unknown)
 
 let provider_of_request req =
   match Cohttp.Header.get (Cohttp.Request.headers req) "x-provider" with
@@ -134,27 +135,20 @@ let anthropic_thinking_options =
 
 (* --- Completion handler (plain text stream for useCompletion) --- *)
 
+type completion_request = { prompt : string } [@@deriving of_json]
+
 let handle_completion ~model conn req body =
   ignore (conn : Cohttp_lwt_unix.Server.conn);
   ignore (req : Cohttp.Request.t);
   let%lwt body_str = Cohttp_lwt.Body.to_string body in
   let prompt =
-    try
-      let json = Yojson.Basic.from_string body_str in
-      match json with
-      | `Assoc fields ->
-        (match List.assoc_opt "prompt" fields with
-         | Some (`String p) -> p
-         | _ -> "")
-      | _ -> ""
+    try (completion_request_of_json (Yojson.Basic.from_string body_str)).prompt
     with _ -> ""
   in
   let result =
     Ai_core.Stream_text.stream_text ~model ~system:basic_system ~prompt ()
   in
-  let text_stream = result.text_stream in
-  let body_stream = Lwt_stream.map (fun chunk -> chunk) text_stream in
-  let body = Cohttp_lwt.Body.of_stream body_stream in
+  let body = Cohttp_lwt.Body.of_stream result.text_stream in
   let headers =
     Cohttp.Header.of_list
       ([ "content-type", "text/plain; charset=utf-8"; "cache-control", "no-cache" ]

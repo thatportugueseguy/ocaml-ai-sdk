@@ -1,4 +1,5 @@
-let _x = ()
+(* MLX requires a structure item before [@react.component] *)
+let _mlx = ()
 
 [@react.component]
 let make () =

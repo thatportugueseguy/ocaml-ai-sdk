@@ -69,8 +69,8 @@ let try_render_structured ~key text =
 
 (* --- Part renderers, matching upstream component patterns --- *)
 
-let render_text_part ~key (p : text_ui_part) =
-  let text = text_ui_part_text p in
+let render_text_part ~key p =
+  let text = Text_part.text p in
   match try_render_structured ~key text with
   | Some rendered -> rendered
   | None ->
@@ -78,10 +78,10 @@ let render_text_part ~key (p : text_ui_part) =
       (s text)
     </div>
 
-let render_reasoning_part ~key (p : reasoning_ui_part) =
-  let text = reasoning_ui_part_text p in
+let render_reasoning_part ~key p =
+  let text = Reasoning_part.text p in
   let is_streaming =
-    match reasoning_ui_part_state p with
+    match Reasoning_part.state p with
     | Some "streaming" -> true
     | _ -> false
   in
@@ -133,13 +133,9 @@ let tool_state_badge state =
     (s label)
   </span>
 
-let render_tool_part ~key (p : tool_ui_part) =
-  let state = tool_ui_part_state p in
-  let name =
-    match tool_ui_part_tool_name p with
-    | Some n -> n
-    | None -> "tool"
-  in
+let render_tool_part ~key p =
+  let state = Tool_part.state p in
+  let name = Option.value ~default:"tool" (Tool_part.tool_name p) in
   let is_error = String.equal state "output-error" in
   <div key
     style=(ReactDOM.Style.make
@@ -155,7 +151,7 @@ let render_tool_part ~key (p : tool_ui_part) =
       <strong> (s name) </strong>
       (tool_state_badge state)
     </div>
-    (match tool_ui_part_input p with
+    (match Tool_part.input p with
      | Some json ->
        <details style=(ReactDOM.Style.make ~marginTop:"8px" ())>
          <summary style=(ReactDOM.Style.make ~cursor:"pointer" ~fontSize:"12px" ~color:"#6b7280" ())>
@@ -166,7 +162,7 @@ let render_tool_part ~key (p : tool_ui_part) =
          </pre>
        </details>
      | None -> React.null)
-    (match String.equal state "output-available", tool_ui_part_output p with
+    (match String.equal state "output-available", Tool_part.output p with
      | true, Some json ->
        <details open_=true style=(ReactDOM.Style.make ~marginTop:"8px" ())>
          <summary style=(ReactDOM.Style.make ~cursor:"pointer" ~fontSize:"12px" ~color:"#065f46" ())>
@@ -177,7 +173,7 @@ let render_tool_part ~key (p : tool_ui_part) =
          </pre>
        </details>
      | _, _ -> React.null)
-    (match is_error, tool_ui_part_error_text p with
+    (match is_error, Tool_part.error_text p with
      | true, Some err ->
        <div style=(ReactDOM.Style.make ~marginTop:"8px" ~fontSize:"12px" ~color:"#991b1b" ())>
          (s err)
@@ -185,13 +181,9 @@ let render_tool_part ~key (p : tool_ui_part) =
      | _, _ -> React.null)
   </div>
 
-let render_source_url_part ~key (p : source_url_ui_part) =
-  let url = source_url_ui_part_url p in
-  let title =
-    match source_url_ui_part_title p with
-    | Some t -> t
-    | None -> url
-  in
+let render_source_url_part ~key p =
+  let url = Source_url_part.url p in
+  let title = Option.value ~default:url (Source_url_part.title p) in
   <a key href=url target="_blank" rel="noopener noreferrer"
     style=(ReactDOM.Style.make
       ~display:"inline-block"
@@ -204,9 +196,9 @@ let render_source_url_part ~key (p : source_url_ui_part) =
     (s title)
   </a>
 
-let render_file_part ~key (p : file_ui_part) =
-  let url = file_ui_part_url p in
-  let media_type = file_ui_part_media_type p in
+let render_file_part ~key p =
+  let url = File_part.url p in
+  let media_type = File_part.media_type p in
   if String.length media_type >= 6 && String.sub media_type 0 6 = "image/" then
     <img key src=url alt="attachment"
       style=(ReactDOM.Style.make
@@ -215,11 +207,7 @@ let render_file_part ~key (p : file_ui_part) =
         ~marginTop:"8px"
         ()) />
   else
-    let filename =
-      match file_ui_part_filename p with
-      | Some f -> f
-      | None -> "file"
-    in
+    let filename = Option.value ~default:"file" (File_part.filename p) in
     <div key style=(ReactDOM.Style.make
       ~display:"inline-flex"
       ~alignItems:"center"
@@ -275,7 +263,7 @@ let role_style ~is_user =
     ()
 
 let render ~msg =
-  let role = ui_message_role msg in
+  let role = Message.role msg in
   let is_user =
     match role with
     | User -> true
@@ -283,13 +271,13 @@ let render ~msg =
   in
   let role_label = if is_user then "You" else "Assistant" in
   let parts =
-    ui_message_parts msg
+    Message.parts msg
     |> Array.to_list
     |> List.mapi render_part
     |> Array.of_list
     |> React.array
   in
-  <div key=(ui_message_id msg) style=(message_style ~is_user)>
+  <div key=(Message.id msg) style=(message_style ~is_user)>
     <div style=(role_style ~is_user)> (s role_label) </div>
     parts
   </div>

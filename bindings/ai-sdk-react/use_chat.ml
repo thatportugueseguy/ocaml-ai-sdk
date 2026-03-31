@@ -86,7 +86,24 @@ end
 
 type options
 
+(** Internal options object — sync onToolCall variant. *)
 external make_options :
+  ?id:string ->
+  ?messages:ui_message array ->
+  ?transport:transport ->
+  ?onError:(Js.Exn.t -> unit) ->
+  ?onToolCall:(Js.Json.t -> unit) ->
+  ?onFinish:(Js.Json.t -> unit) ->
+  ?onData:(Js.Json.t -> unit) ->
+  ?sendAutomaticallyWhen:(Js.Json.t -> bool Js.Promise.t) ->
+  ?experimental_throttle:int ->
+  ?resume:bool ->
+  unit ->
+  options = ""
+[@@mel.obj]
+
+(** Internal options object — async onToolCall variant (returns Promise). *)
+external make_options_async_tool_call :
   ?id:string ->
   ?messages:ui_message array ->
   ?transport:transport ->
@@ -108,5 +125,14 @@ let use_chat ?id ?messages ?transport ?on_error ?on_tool_call ?on_finish ?on_dat
   let opts =
     make_options ?id ?messages ?transport ?onError:on_error ?onToolCall:on_tool_call ?onFinish:on_finish ?onData:on_data
       ?sendAutomaticallyWhen:send_automatically_when ?experimental_throttle ?resume ()
+  in
+  use_chat_raw (Some opts)
+
+let use_chat_async_tool_call ?id ?messages ?transport ?on_error ?on_tool_call ?on_finish ?on_data
+  ?send_automatically_when ?experimental_throttle ?resume () =
+  let opts =
+    make_options_async_tool_call ?id ?messages ?transport ?onError:on_error ?onToolCall:on_tool_call
+      ?onFinish:on_finish ?onData:on_data ?sendAutomaticallyWhen:send_automatically_when ?experimental_throttle ?resume
+      ()
   in
   use_chat_raw (Some opts)
