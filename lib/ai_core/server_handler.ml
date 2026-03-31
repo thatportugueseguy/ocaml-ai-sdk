@@ -56,6 +56,12 @@ let tool_state_of_string = function
   | _ -> Unknown_state
 
 (** A parsed v6 UIMessage part. Derived from JSON via melange-json PPX. *)
+type parsed_approval = {
+  id : string option; [@json.option]
+  approved : bool option; [@json.option]
+}
+[@@json.allow_extra_fields] [@@deriving of_json]
+
 type parsed_part = {
   type_ : string; [@json.key "type"]
   text : string option; [@json.option]
@@ -70,6 +76,7 @@ type parsed_part = {
   output : Melange_json.t option; [@json.option]
   error_text : string option; [@json.key "errorText"] [@json.option]
   approved : bool option; [@json.option]
+  approval : parsed_approval option; [@json.option]
 }
 [@@json.allow_extra_fields] [@@deriving of_json]
 
@@ -80,6 +87,28 @@ type chat_message = {
 [@@json.allow_extra_fields] [@@deriving of_json]
 
 type chat_request = { messages : chat_message list } [@@json.allow_extra_fields] [@@deriving of_json]
+
+(** Extract tool name from [toolName] field, falling back to the type prefix
+    (e.g. ["tool-get_weather"] -> ["get_weather"]). *)
+let resolve_tool_name (p : parsed_part) =
+  match p.tool_name with
+  | Some name -> Some name
+  | None ->
+    let t = p.type_ in
+    let prefix = "tool-" in
+    let plen = String.length prefix in
+    match String.length t > plen && String.sub t 0 plen = prefix with
+    | true -> Some (String.sub t plen (String.length t - plen))
+    | false -> None
+
+(** Extract approved status: check top-level [approved] first, then [approval.approved]. *)
+let resolve_approved (p : parsed_part) =
+  match p.approved with
+  | Some v -> Some v
+  | None ->
+    match p.approval with
+    | Some a -> a.approved
+    | None -> None
 
 let parse_file_data (p : parsed_part) =
   match p.media_type with
@@ -164,19 +193,22 @@ let parse_tool_result (p : parsed_part) : Ai_provider.Prompt.tool_result option 
           content = [];
           provider_options = empty_opts;
         }
-    | Some Approval_responded, Some tool_call_id, Some tool_name ->
-      (match p.approved with
-      | Some true -> None
-      | _ ->
-        Some
-          {
-            Ai_provider.Prompt.tool_call_id;
-            tool_name;
-            result = `String "Tool execution denied";
-            is_error = true;
-            content = [];
-            provider_options = empty_opts;
-          })
+    | Some Approval_responded, Some tool_call_id, _ ->
+      (match resolve_tool_name p with
+      | Some tool_name ->
+        (match resolve_approved p with
+        | Some true -> None
+        | _ ->
+          Some
+            {
+              Ai_provider.Prompt.tool_call_id;
+              tool_name;
+              result = `String "Tool execution denied";
+              is_error = true;
+              content = [];
+              provider_options = empty_opts;
+            })
+      | None -> None)
     | _ -> None)
   | _ -> None
 
@@ -232,7 +264,7 @@ let collect_pending_tool_approvals body_json =
           (fun (p : parsed_part) ->
             match part_type_of_string p.type_, Option.map tool_state_of_string p.state with
             | Tool_invocation _, Some Approval_responded ->
-              (match p.tool_call_id, p.tool_name, p.approved with
+              (match p.tool_call_id, resolve_tool_name p, resolve_approved p with
               | Some tool_call_id, Some tool_name, Some approved ->
                 let args =
                   match p.input with
