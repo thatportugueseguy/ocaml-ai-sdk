@@ -146,7 +146,7 @@ let parse_assistant_part (p : parsed_part) : Ai_provider.Prompt.assistant_part o
 let parse_tool_call (p : parsed_part) : Ai_provider.Prompt.assistant_part option =
   match part_type_of_string p.type_ with
   | Tool_invocation _ ->
-    (match p.tool_call_id, p.tool_name, p.input with
+    (match p.tool_call_id, resolve_tool_name p, p.input with
     | Some id, Some name, Some args ->
       Some (Ai_provider.Prompt.Tool_call { id; name; args; provider_options = empty_opts })
     | _ -> None)
@@ -156,7 +156,8 @@ let parse_tool_result (p : parsed_part) : Ai_provider.Prompt.tool_result option 
   match part_type_of_string p.type_ with
   | Tool_invocation _ ->
     let state = Option.map tool_state_of_string p.state in
-    (match state, p.tool_call_id, p.tool_name with
+    let tool_name = resolve_tool_name p in
+    (match state, p.tool_call_id, tool_name with
     | Some Output_available, Some tool_call_id, Some tool_name ->
       let result = Option.value ~default:`Null p.output in
       Some
