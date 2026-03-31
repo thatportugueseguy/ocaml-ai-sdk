@@ -404,6 +404,13 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
           | [] -> Lwt.return (initial_messages, [])
           | approvals ->
             emit_event Text_stream_part.Start_step;
+            (* Emit tool input chunks so the frontend creates tool invocations *)
+            List.iter
+              (fun (ta : Generate_text_result.pending_tool_approval) ->
+                emit_event
+                  (Text_stream_part.Tool_call
+                     { tool_call_id = ta.tool_call_id; tool_name = ta.tool_name; args = ta.args }))
+              approvals;
             let%lwt tool_results =
               Lwt_list.map_s
                 (fun (ta : Generate_text_result.pending_tool_approval) ->
