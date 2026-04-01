@@ -395,19 +395,38 @@ let test_parse_tool_approval_requested () =
     (check string) "name" "delete" name
   | _ -> fail "expected Assistant(Tool_call only, no Tool message for approval-requested)"
 
-let test_parse_tool_approval_responded () =
-  (* approval-responded: approval given but no result yet *)
+let test_parse_tool_approval_responded_approved () =
+  (* approval-responded with approved=true: tool will be executed, no result yet *)
   let msgs =
     parse
       (json
          {|{"messages":[{"role":"assistant","parts":[
-            {"type":"tool-delete","toolCallId":"tc_ar","toolName":"delete",
-             "state":"approval-responded","input":{"id":42}}
+            {"type":"tool-weather","toolCallId":"tc_1","toolName":"weather",
+             "state":"approval-responded","approved":true,"input":{"city":"London"}}
           ]}]}|})
   in
   match msgs with
-  | [ Assistant { content = [ Tool_call { id; _ } ] } ] -> (check string) "id" "tc_ar" id
-  | _ -> fail "expected Assistant(Tool_call only, no Tool message for approval-responded)"
+  | [ Assistant { content = [ Tool_call { id; name; _ } ] } ] ->
+    (check string) "id" "tc_1" id;
+    (check string) "name" "weather" name
+  | _ -> fail "expected Assistant(Tool_call only, no Tool message for approved)"
+
+let test_parse_tool_approval_responded_denied () =
+  (* approval-responded with approved=false: no tool result from parser,
+     denied result is created by the initial tool execution step instead *)
+  let msgs =
+    parse
+      (json
+         {|{"messages":[{"role":"assistant","parts":[
+            {"type":"tool-weather","toolCallId":"tc_1","toolName":"weather",
+             "state":"approval-responded","approved":false,"input":{"city":"London"}}
+          ]}]}|})
+  in
+  match msgs with
+  | [ Assistant { content = [ Tool_call { id; name; _ } ] } ] ->
+    (check string) "id" "tc_1" id;
+    (check string) "name" "weather" name
+  | _ -> fail "expected Assistant(Tool_call only, no Tool message for denied)"
 
 let test_parse_tool_output_available_null_output () =
   (* output-available without an output field defaults to `Null *)
@@ -487,6 +506,82 @@ let test_parse_extra_request_fields_ignored () =
   | [ User { content = [ Text { text; _ } ] } ] -> (check string) "text" "Hi" text
   | _ -> fail "expected User message (extra fields ignored)"
 
+let test_collect_pending_approvals () =
+  let json =
+    Yojson.Basic.from_string
+      {|{
+    "messages": [{
+      "role": "assistant",
+      "parts": [
+        {
+          "type": "tool-weather",
+          "toolCallId": "tc_1",
+          "toolName": "weather",
+          "state": "approval-responded",
+          "approved": true,
+          "input": {"city": "London"}
+        },
+        {
+          "type": "tool-deploy",
+          "toolCallId": "tc_2",
+          "toolName": "deploy",
+          "state": "approval-responded",
+          "approved": false,
+          "input": {}
+        }
+      ]
+    }]
+  }|}
+  in
+  let approvals = Ai_core.Server_handler.collect_pending_tool_approvals json in
+  (check int) "2 approvals" 2 (List.length approvals);
+  match approvals with
+  | a1 :: a2 :: _ ->
+    (check string) "tc_1 id" "tc_1" a1.tool_call_id;
+    (check string) "tc_1 name" "weather" a1.tool_name;
+    (check bool) "tc_1 approved" true a1.approved;
+    (check string) "tc_2 id" "tc_2" a2.tool_call_id;
+    (check bool) "tc_2 denied" false a2.approved
+  | _ -> Alcotest.fail "expected 2 approvals"
+
+let test_collect_pending_approvals_empty () =
+  let json = Yojson.Basic.from_string {|{"messages": [{"role": "user", "parts": [{"type": "text", "text": "Hi"}]}]}|} in
+  let approvals = Ai_core.Server_handler.collect_pending_tool_approvals json in
+  (check int) "0 approvals" 0 (List.length approvals)
+
+let test_collect_pending_approvals_nested_approval () =
+  (* The real frontend sends approval as a nested object: { approval: { id, approved } } *)
+  let json =
+    Yojson.Basic.from_string
+      {|{
+    "messages": [{
+      "role": "assistant",
+      "parts": [
+        {
+          "type": "tool-weather",
+          "toolCallId": "tc_1",
+          "state": "approval-responded",
+          "approval": {"id": "appr_1", "approved": true},
+          "input": {"city": "London"}
+        }
+      ]
+    }]
+  }|}
+  in
+  let approvals = Ai_core.Server_handler.collect_pending_tool_approvals json in
+  (check int) "1 approval" 1 (List.length approvals);
+  match approvals with
+  | a :: _ ->
+    (check string) "id" "tc_1" a.tool_call_id;
+    (check string) "name" "weather" a.tool_name;
+    (check bool) "approved" true a.approved
+  | [] -> Alcotest.fail "expected 1 approval"
+
+let test_collect_pending_approvals_invalid_json () =
+  let json = `String "not an object" in
+  let approvals = Ai_core.Server_handler.collect_pending_tool_approvals json in
+  (check int) "0 on invalid" 0 (List.length approvals)
+
 let () =
   run "Server_handler"
     [
@@ -527,10 +622,18 @@ let () =
           test_case "multiple tool calls" `Quick test_parse_multiple_tool_calls;
           test_case "input-streaming (no result)" `Quick test_parse_tool_invocation_input_streaming;
           test_case "approval-requested (no result)" `Quick test_parse_tool_approval_requested;
-          test_case "approval-responded (no result)" `Quick test_parse_tool_approval_responded;
+          test_case "approval-responded approved (no result)" `Quick test_parse_tool_approval_responded_approved;
+          test_case "approval-responded denied (error result)" `Quick test_parse_tool_approval_responded_denied;
           test_case "output-available null output" `Quick test_parse_tool_output_available_null_output;
           test_case "tool missing fields" `Quick test_parse_tool_missing_fields_skipped;
           test_case "tool error no errorText" `Quick test_parse_tool_error_without_error_text;
+        ] );
+      ( "collect_pending_tool_approvals",
+        [
+          test_case "pending approvals" `Quick test_collect_pending_approvals;
+          test_case "nested approval format" `Quick test_collect_pending_approvals_nested_approval;
+          test_case "no approvals" `Quick test_collect_pending_approvals_empty;
+          test_case "invalid json" `Quick test_collect_pending_approvals_invalid_json;
         ] );
       ( "parse_messages: edge cases",
         [

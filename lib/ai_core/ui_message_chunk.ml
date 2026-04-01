@@ -62,6 +62,10 @@ type t =
       error_text : string;
     }
   | Tool_output_denied of { tool_call_id : string }
+  | Tool_approval_request of {
+      approval_id : string;
+      tool_call_id : string;
+    }
   | Source_document of {
       source_id : string;
       media_type : string;
@@ -148,6 +152,13 @@ type tool_output_error_json = {
 }
 [@@deriving to_json]
 
+type tool_approval_request_json = {
+  type_ : string; [@json.key "type"]
+  approval_id : string; [@json.key "approvalId"]
+  tool_call_id : string; [@json.key "toolCallId"]
+}
+[@@deriving to_json]
+
 type source_url_json = {
   type_ : string; [@json.key "type"]
   source_id : string; [@json.key "sourceId"]
@@ -212,7 +223,7 @@ let to_json = function
     finish_json_to_json
       {
         type_ = "finish";
-        finish_reason = Option.map Ai_provider.Finish_reason.to_string finish_reason;
+        finish_reason = Option.map Ai_provider.Finish_reason.to_wire_string finish_reason;
         message_metadata;
       }
   | Abort { reason } -> abort_json_to_json { type_ = "abort"; reason }
@@ -242,6 +253,8 @@ let to_json = function
     tool_input_error_json_to_json { type_ = "tool-input-error"; tool_call_id; tool_name; input; error_text }
   | Tool_output_denied { tool_call_id } ->
     tool_output_denied_json_to_json { type_ = "tool-output-denied"; tool_call_id }
+  | Tool_approval_request { approval_id; tool_call_id } ->
+    tool_approval_request_json_to_json { type_ = "tool-approval-request"; approval_id; tool_call_id }
   | Source_document { source_id; media_type; title; filename } ->
     source_document_json_to_json { type_ = "source-document"; source_id; media_type; title; filename }
   | Error { error_text } -> error_json_to_json { type_ = "error"; error_text }

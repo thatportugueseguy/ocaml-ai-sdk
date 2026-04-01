@@ -66,6 +66,10 @@ type t =
       error_text : string;
     }
   | Tool_output_denied of { tool_call_id : string }
+  | Tool_approval_request of {
+      approval_id : string;
+      tool_call_id : string;
+    }
   | Source_document of {
       source_id : string;
       media_type : string;
