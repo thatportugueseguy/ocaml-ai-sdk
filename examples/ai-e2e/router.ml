@@ -67,8 +67,8 @@ let route_label = function
   | File_attachments -> "File Attachments"
 
 let is_stub = function
-  | Client_tools | Web_search | File_attachments -> true
-  | Basic_chat | Tool_use | Reasoning | Structured_output | Abort_stop | Retry_regenerate | Completion
+  | Web_search | File_attachments -> true
+  | Basic_chat | Tool_use | Reasoning | Structured_output | Abort_stop | Retry_regenerate | Client_tools | Completion
   | Tool_approval -> false
 
 let route_description = function
