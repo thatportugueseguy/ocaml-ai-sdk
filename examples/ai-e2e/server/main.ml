@@ -14,8 +14,8 @@ open Melange_json.Primitives
 
 let model_of_provider provider =
   match provider with
-  | "openai" -> Ai_provider_openai.model "gpt-4o"
-  | "anthropic" -> Ai_provider_anthropic.model "claude-sonnet-4-6"
+  | "openai" -> Ai_provider_openai.model "gpt-4o-mini"
+  | "anthropic" -> Ai_provider_anthropic.model "claude-haiku-4-5-20251001"
   | unknown -> failwith (Printf.sprintf "Unknown provider: %s (expected 'anthropic' or 'openai')" unknown)
 
 let provider_of_request req =
@@ -88,6 +88,39 @@ let search_web : Ai_core.Core_tool.t =
 
 let tools = [ "get_weather", get_weather; "search_web", search_web ]
 
+(* --- Approval tools (weather needs approval, search doesn't) --- *)
+
+let approval_weather : Ai_core.Core_tool.t =
+  Ai_core.Core_tool.create_with_approval
+    ~description:"Get the current weather for a city. Requires user approval before execution."
+    ~parameters:(json_of_schema city_args_jsonschema)
+    ~execute:(fun args ->
+      let city = try (city_args_of_json args).city with _ -> "unknown" in
+      let temperature, condition =
+        match String.lowercase_ascii city with
+        | "paris" -> 18, "partly cloudy"
+        | "london" -> 12, "rainy"
+        | "tokyo" -> 26, "sunny"
+        | "new york" -> 15, "windy"
+        | _ -> 20, "clear"
+      in
+      Lwt.return (weather_result_to_json { city; temperature; condition; unit_ = "celsius" }))
+    ()
+
+let approval_tools = [ "get_weather", approval_weather; "search_web", search_web ]
+
+(* --- Client-side tools (server defines, client provides results) --- *)
+
+let get_location : Ai_core.Core_tool.t =
+  Ai_core.Core_tool.create_with_approval
+    ~description:"Get the user's current location. The browser provides this data."
+    ~parameters:(`Assoc [ "type", `String "object"; "properties", `Assoc [] ])
+    ~execute:(fun _args ->
+      Lwt.return (`String "Location provided by client"))
+    ()
+
+let client_tools_list = [ "get_location", get_location; "get_weather", approval_weather ]
+
 (* --- Structured output schema --- *)
 
 type data_point = {
@@ -122,6 +155,17 @@ Your response must be JSON with:
 - "data": an array of {"label": "...", "value": "..."} key data points|}
 
 let reasoning_system = "You are a helpful assistant. Think through problems step by step before answering."
+
+let approval_system =
+  {|You are a helpful assistant with access to tools.
+When asked about weather, use the get_weather tool. This tool requires user approval.
+When asked to search, use the search_web tool. This tool executes immediately.
+You can use multiple tools in sequence.|}
+
+let client_tools_system =
+  {|You are a helpful assistant. You can get the user's location and check the weather.
+When asked about local weather or location-dependent queries, first use get_location, then use get_weather with the result.
+When the user asks "what's the weather here?" or similar, use both tools.|}
 
 (* --- Thinking / reasoning provider options --- *)
 
@@ -232,13 +276,11 @@ let handler conn req body =
   | `POST, "/api/chat/structured" ->
     Ai_core.Server_handler.handle_chat ~model ~system:structured_system ~tools ~max_steps:5 ~output conn req body
   | `POST, "/api/chat/client-tools" ->
-    (* Stub: same as basic chat until tool approval protocol is implemented *)
-    Ai_core.Server_handler.handle_chat ~model ~system:basic_system conn req body
+    Ai_core.Server_handler.handle_chat ~model ~system:client_tools_system ~tools:client_tools_list ~max_steps:5 conn req body
   | `POST, "/api/chat/completion" ->
     handle_completion ~model conn req body
-  (* Stubs — behave like basic chat for now *)
   | `POST, "/api/chat/approval" ->
-    Ai_core.Server_handler.handle_chat ~model ~system:tools_system ~tools ~max_steps:5 conn req body
+    Ai_core.Server_handler.handle_chat ~model ~system:approval_system ~tools:approval_tools ~max_steps:5 conn req body
   | `POST, "/api/chat/web-search" ->
     Ai_core.Server_handler.handle_chat ~model ~system:basic_system conn req body
   (* Static files *)
@@ -260,7 +302,7 @@ let () =
   Printf.printf "  POST /api/chat/structured   — Structured output\n%!";
   Printf.printf "  POST /api/chat/client-tools — Client-side tools\n%!";
   Printf.printf "  POST /api/chat/completion   — Text completion\n%!";
-  Printf.printf "  POST /api/chat/approval     — Tool approval (stub)\n%!";
+  Printf.printf "  POST /api/chat/approval     — Tool approval\n%!";
   Printf.printf "  POST /api/chat/web-search   — Web search (stub)\n%!";
   let server =
     Cohttp_lwt_unix.Server.create ~mode:(`TCP (`Port port)) (Cohttp_lwt_unix.Server.make ~callback:handler ())
