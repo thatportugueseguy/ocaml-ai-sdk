@@ -48,6 +48,16 @@ type tool_approval_response
 val make_tool_approval_response : id:string -> approved:bool -> ?reason:string -> unit -> tool_approval_response
 val add_tool_approval_response : t -> tool_approval_response -> unit
 
+(** {1 Auto-submit helpers} *)
+
+type send_automatically_options
+
+val send_automatically_options_messages : send_automatically_options -> ui_message array
+
+(** Checks if all tool parts in the last assistant message have approval responses.
+    Use with [~send_automatically_when] to auto-resubmit after tool approval. *)
+val last_assistant_message_is_complete_with_approval_responses : send_automatically_options -> bool
+
 (** {1 Transport} *)
 
 type transport
@@ -78,24 +88,7 @@ val use_chat :
   ?on_tool_call:(Js.Json.t -> unit) ->
   ?on_finish:(Js.Json.t -> unit) ->
   ?on_data:(Js.Json.t -> unit) ->
-  ?send_automatically_when:(Js.Json.t -> bool Js.Promise.t) ->
-  ?experimental_throttle:int ->
-  ?resume:bool ->
-  unit ->
-  t
-
-(** Like {!use_chat} but [on_tool_call] returns a [Promise].
-    Use when you need the SDK to wait for the tool call handler before continuing
-    (e.g. async client-side tool resolution). *)
-val use_chat_async_tool_call :
-  ?id:string ->
-  ?messages:ui_message array ->
-  ?transport:transport ->
-  ?on_error:(Js.Exn.t -> unit) ->
-  ?on_tool_call:(Js.Json.t -> unit Js.Promise.t) ->
-  ?on_finish:(Js.Json.t -> unit) ->
-  ?on_data:(Js.Json.t -> unit) ->
-  ?send_automatically_when:(Js.Json.t -> bool Js.Promise.t) ->
+  ?send_automatically_when:(send_automatically_options -> bool) ->
   ?experimental_throttle:int ->
   ?resume:bool ->
   unit ->

@@ -8,12 +8,11 @@ let count_by_role msgs =
   List.fold_left
     (fun (s, u, a, t) msg ->
       match (msg : Ai_provider.Prompt.message) with
-      | System _ -> (s + 1, u, a, t)
-      | User _ -> (s, u + 1, a, t)
-      | Assistant _ -> (s, u, a + 1, t)
-      | Tool _ -> (s, u, a, t + 1))
-    (0, 0, 0, 0)
-    msgs
+      | System _ -> s + 1, u, a, t
+      | User _ -> s, u + 1, a, t
+      | Assistant _ -> s, u, a + 1, t
+      | Tool _ -> s, u, a, t + 1)
+    (0, 0, 0, 0) msgs
 
 (* === SSE response tests === *)
 
@@ -65,11 +64,7 @@ let test_make_sse_response_body_content () =
 (* === parse_messages_from_body tests === *)
 
 let test_parse_user_text_only () =
-  let msgs =
-    parse
-      (json
-         {|{"messages":[{"role":"user","parts":[{"type":"text","text":"Hello"}]}]}|})
-  in
+  let msgs = parse (json {|{"messages":[{"role":"user","parts":[{"type":"text","text":"Hello"}]}]}|}) in
   (check int) "one message" 1 (List.length msgs);
   match msgs with
   | [ User { content = [ Text { text; _ } ] } ] -> (check string) "text" "Hello" text
@@ -92,9 +87,7 @@ let test_parse_user_multiple_text_parts () =
 
 let test_parse_system_message () =
   let msgs =
-    parse
-      (json
-         {|{"messages":[{"role":"system","parts":[{"type":"text","text":"You are a helpful assistant."}]}]}|})
+    parse (json {|{"messages":[{"role":"system","parts":[{"type":"text","text":"You are a helpful assistant."}]}]}|})
   in
   match msgs with
   | [ System { content } ] -> (check string) "system content" "You are a helpful assistant." content
@@ -114,11 +107,7 @@ let test_parse_system_concatenates_text_parts () =
   | _ -> fail "expected System message"
 
 let test_parse_assistant_text () =
-  let msgs =
-    parse
-      (json
-         {|{"messages":[{"role":"assistant","parts":[{"type":"text","text":"Hi there!"}]}]}|})
-  in
+  let msgs = parse (json {|{"messages":[{"role":"assistant","parts":[{"type":"text","text":"Hi there!"}]}]}|}) in
   match msgs with
   | [ Assistant { content = [ Text { text; _ } ] } ] -> (check string) "text" "Hi there!" text
   | _ -> fail "expected Assistant with Text"
@@ -197,9 +186,10 @@ let test_parse_tool_invocation_output_available () =
   (check int) "tool msgs" 1 t;
   (check int) "system msgs" 0 s;
   match msgs with
-  | [ Assistant { content = [ Text { text; _ }; Tool_call { id; name; args; _ } ] };
-      Tool { content = [ { tool_call_id; tool_name; result; is_error; _ } ] };
-    ] ->
+  | [
+   Assistant { content = [ Text { text; _ }; Tool_call { id; name; args; _ } ] };
+   Tool { content = [ { tool_call_id; tool_name; result; is_error; _ } ] };
+  ] ->
     (check string) "text" "Let me check..." text;
     (check string) "tool_call id" "tc_1" id;
     (check string) "tool_call name" "weather" name;
@@ -283,9 +273,7 @@ let test_parse_multiple_tool_calls () =
           ]}]}|})
   in
   match msgs with
-  | [ Assistant { content = [ Tool_call { id = id1; _ }; Tool_call { id = id2; _ } ] };
-      Tool { content = results };
-    ] ->
+  | [ Assistant { content = [ Tool_call { id = id1; _ }; Tool_call { id = id2; _ } ] }; Tool { content = results } ] ->
     (check string) "first id" "tc_a" id1;
     (check string) "second id" "tc_b" id2;
     (check int) "two results" 2 (List.length results)
@@ -319,15 +307,11 @@ let test_parse_skip_step_start () =
   | _ -> fail "expected Assistant with only text (step-start skipped)"
 
 let test_parse_empty_parts () =
-  let msgs =
-    parse (json {|{"messages":[{"role":"user","parts":[]}]}|})
-  in
+  let msgs = parse (json {|{"messages":[{"role":"user","parts":[]}]}|}) in
   (check int) "no messages for empty parts" 0 (List.length msgs)
 
 let test_parse_missing_parts () =
-  let msgs =
-    parse (json {|{"messages":[{"role":"user"}]}|})
-  in
+  let msgs = parse (json {|{"messages":[{"role":"user"}]}|}) in
   (check int) "no messages when parts missing" 0 (List.length msgs)
 
 let test_parse_multi_turn_conversation () =
@@ -392,8 +376,7 @@ let test_parse_tool_invocation_input_streaming () =
           ]}]}|})
   in
   match msgs with
-  | [ Assistant { content = [ Tool_call { id; _ } ] } ] ->
-    (check string) "id" "tc_s" id
+  | [ Assistant { content = [ Tool_call { id; _ } ] } ] -> (check string) "id" "tc_s" id
   | _ -> fail "expected Assistant(Tool_call only, no Tool message)"
 
 let test_parse_tool_approval_requested () =
@@ -412,20 +395,38 @@ let test_parse_tool_approval_requested () =
     (check string) "name" "delete" name
   | _ -> fail "expected Assistant(Tool_call only, no Tool message for approval-requested)"
 
-let test_parse_tool_approval_responded () =
-  (* approval-responded: approval given but no result yet *)
+let test_parse_tool_approval_responded_approved () =
+  (* approval-responded with approved=true: tool will be executed, no result yet *)
   let msgs =
     parse
       (json
          {|{"messages":[{"role":"assistant","parts":[
-            {"type":"tool-delete","toolCallId":"tc_ar","toolName":"delete",
-             "state":"approval-responded","input":{"id":42}}
+            {"type":"tool-weather","toolCallId":"tc_1","toolName":"weather",
+             "state":"approval-responded","approved":true,"input":{"city":"London"}}
           ]}]}|})
   in
   match msgs with
-  | [ Assistant { content = [ Tool_call { id; _ } ] } ] ->
-    (check string) "id" "tc_ar" id
-  | _ -> fail "expected Assistant(Tool_call only, no Tool message for approval-responded)"
+  | [ Assistant { content = [ Tool_call { id; name; _ } ] } ] ->
+    (check string) "id" "tc_1" id;
+    (check string) "name" "weather" name
+  | _ -> fail "expected Assistant(Tool_call only, no Tool message for approved)"
+
+let test_parse_tool_approval_responded_denied () =
+  (* approval-responded with approved=false: no tool result from parser,
+     denied result is created by the initial tool execution step instead *)
+  let msgs =
+    parse
+      (json
+         {|{"messages":[{"role":"assistant","parts":[
+            {"type":"tool-weather","toolCallId":"tc_1","toolName":"weather",
+             "state":"approval-responded","approved":false,"input":{"city":"London"}}
+          ]}]}|})
+  in
+  match msgs with
+  | [ Assistant { content = [ Tool_call { id; name; _ } ] } ] ->
+    (check string) "id" "tc_1" id;
+    (check string) "name" "weather" name
+  | _ -> fail "expected Assistant(Tool_call only, no Tool message for denied)"
 
 let test_parse_tool_output_available_null_output () =
   (* output-available without an output field defaults to `Null *)
@@ -488,13 +489,9 @@ let test_parse_no_messages_field () =
   (check int) "empty" 0 (List.length msgs)
 
 let test_parse_text_part_missing_text_skipped () =
-  let msgs =
-    parse
-      (json
-         {|{"messages":[{"role":"user","parts":[
+  let msgs = parse (json {|{"messages":[{"role":"user","parts":[
             {"type":"text"}
-          ]}]}|})
-  in
+          ]}]}|}) in
   (check int) "no messages (text without text field)" 0 (List.length msgs)
 
 let test_parse_extra_request_fields_ignored () =
@@ -508,6 +505,82 @@ let test_parse_extra_request_fields_ignored () =
   match msgs with
   | [ User { content = [ Text { text; _ } ] } ] -> (check string) "text" "Hi" text
   | _ -> fail "expected User message (extra fields ignored)"
+
+let test_collect_pending_approvals () =
+  let json =
+    Yojson.Basic.from_string
+      {|{
+    "messages": [{
+      "role": "assistant",
+      "parts": [
+        {
+          "type": "tool-weather",
+          "toolCallId": "tc_1",
+          "toolName": "weather",
+          "state": "approval-responded",
+          "approved": true,
+          "input": {"city": "London"}
+        },
+        {
+          "type": "tool-deploy",
+          "toolCallId": "tc_2",
+          "toolName": "deploy",
+          "state": "approval-responded",
+          "approved": false,
+          "input": {}
+        }
+      ]
+    }]
+  }|}
+  in
+  let approvals = Ai_core.Server_handler.collect_pending_tool_approvals json in
+  (check int) "2 approvals" 2 (List.length approvals);
+  match approvals with
+  | a1 :: a2 :: _ ->
+    (check string) "tc_1 id" "tc_1" a1.tool_call_id;
+    (check string) "tc_1 name" "weather" a1.tool_name;
+    (check bool) "tc_1 approved" true a1.approved;
+    (check string) "tc_2 id" "tc_2" a2.tool_call_id;
+    (check bool) "tc_2 denied" false a2.approved
+  | _ -> Alcotest.fail "expected 2 approvals"
+
+let test_collect_pending_approvals_empty () =
+  let json = Yojson.Basic.from_string {|{"messages": [{"role": "user", "parts": [{"type": "text", "text": "Hi"}]}]}|} in
+  let approvals = Ai_core.Server_handler.collect_pending_tool_approvals json in
+  (check int) "0 approvals" 0 (List.length approvals)
+
+let test_collect_pending_approvals_nested_approval () =
+  (* The real frontend sends approval as a nested object: { approval: { id, approved } } *)
+  let json =
+    Yojson.Basic.from_string
+      {|{
+    "messages": [{
+      "role": "assistant",
+      "parts": [
+        {
+          "type": "tool-weather",
+          "toolCallId": "tc_1",
+          "state": "approval-responded",
+          "approval": {"id": "appr_1", "approved": true},
+          "input": {"city": "London"}
+        }
+      ]
+    }]
+  }|}
+  in
+  let approvals = Ai_core.Server_handler.collect_pending_tool_approvals json in
+  (check int) "1 approval" 1 (List.length approvals);
+  match approvals with
+  | a :: _ ->
+    (check string) "id" "tc_1" a.tool_call_id;
+    (check string) "name" "weather" a.tool_name;
+    (check bool) "approved" true a.approved
+  | [] -> Alcotest.fail "expected 1 approval"
+
+let test_collect_pending_approvals_invalid_json () =
+  let json = `String "not an object" in
+  let approvals = Ai_core.Server_handler.collect_pending_tool_approvals json in
+  (check int) "0 on invalid" 0 (List.length approvals)
 
 let () =
   run "Server_handler"
@@ -549,10 +622,18 @@ let () =
           test_case "multiple tool calls" `Quick test_parse_multiple_tool_calls;
           test_case "input-streaming (no result)" `Quick test_parse_tool_invocation_input_streaming;
           test_case "approval-requested (no result)" `Quick test_parse_tool_approval_requested;
-          test_case "approval-responded (no result)" `Quick test_parse_tool_approval_responded;
+          test_case "approval-responded approved (no result)" `Quick test_parse_tool_approval_responded_approved;
+          test_case "approval-responded denied (error result)" `Quick test_parse_tool_approval_responded_denied;
           test_case "output-available null output" `Quick test_parse_tool_output_available_null_output;
           test_case "tool missing fields" `Quick test_parse_tool_missing_fields_skipped;
           test_case "tool error no errorText" `Quick test_parse_tool_error_without_error_text;
+        ] );
+      ( "collect_pending_tool_approvals",
+        [
+          test_case "pending approvals" `Quick test_collect_pending_approvals;
+          test_case "nested approval format" `Quick test_collect_pending_approvals_nested_approval;
+          test_case "no approvals" `Quick test_collect_pending_approvals_empty;
+          test_case "invalid json" `Quick test_collect_pending_approvals_invalid_json;
         ] );
       ( "parse_messages: edge cases",
         [

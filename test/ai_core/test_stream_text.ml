@@ -89,6 +89,7 @@ let search_tool : Ai_core.Core_tool.t =
       (fun args ->
         let q = try (query_args_of_json args).query with _ -> "?" in
         Lwt.return (`String (Printf.sprintf "Results for: %s" q)));
+    needs_approval = None;
   }
 
 (* Tests *)
@@ -212,6 +213,309 @@ let test_stream_without_output () =
   let final_output = Lwt_main.run result.output in
   (check bool) "output is None" true (Option.is_none final_output)
 
+let make_approval_stream_model () =
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-approval-stream"
+    let generate _opts = Lwt.fail_with "not implemented"
+
+    let stream _opts =
+      let stream, push = Lwt_stream.create () in
+      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
+      push (Some (Ai_provider.Stream_part.Text { text = "Let me check." }));
+      push
+        (Some
+           (Ai_provider.Stream_part.Tool_call_delta
+              {
+                tool_call_type = "function";
+                tool_call_id = "tc_1";
+                tool_name = "dangerous_action";
+                args_text_delta = {|{"target":"prod"}|};
+              }));
+      push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = "tc_1" }));
+      push
+        (Some
+           (Ai_provider.Stream_part.Finish
+              { finish_reason = Tool_calls; usage = { input_tokens = 10; output_tokens = 8; total_tokens = Some 18 } }));
+      push None;
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  (module M : Ai_provider.Language_model.S)
+
+let approval_tool : Ai_core.Core_tool.t =
+  Ai_core.Core_tool.create_with_approval ~description:"Dangerous"
+    ~parameters:(`Assoc [ "type", `String "object" ])
+    ~execute:(fun _ -> Lwt.return (`String "executed"))
+    ()
+
+let test_approval_stops_stream_loop () =
+  let model = make_approval_stream_model () in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Do it" ~tools:[ "dangerous_action", approval_tool ] ~max_steps:3 ()
+  in
+  let parts = Lwt_main.run (Lwt_stream.to_list result.full_stream) in
+  (* Should have Tool_approval_request, NO Tool_result *)
+  let has_approval =
+    List.exists
+      (fun p ->
+        match p with
+        | Ai_core.Text_stream_part.Tool_approval_request _ -> true
+        | _ -> false)
+      parts
+  in
+  let has_tool_result =
+    List.exists
+      (fun p ->
+        match p with
+        | Ai_core.Text_stream_part.Tool_result _ -> true
+        | _ -> false)
+      parts
+  in
+  (check bool) "has approval request" true has_approval;
+  (check bool) "no tool result" false has_tool_result;
+  let steps = Lwt_main.run result.steps in
+  (check int) "1 step" 1 (List.length steps);
+  match steps with
+  | step :: _ ->
+    (check int) "1 tool call" 1 (List.length step.tool_calls);
+    (check int) "0 tool results" 0 (List.length step.tool_results)
+  | [] -> Alcotest.fail "expected at least one step"
+
+let make_approved_stream_model () =
+  let call_count = ref 0 in
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-approved-stream"
+    let generate _opts = Lwt.fail_with "not implemented"
+
+    let stream _opts =
+      incr call_count;
+      let stream, push = Lwt_stream.create () in
+      if !call_count = 1 then begin
+        push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
+        push (Some (Ai_provider.Stream_part.Text { text = "Let me check." }));
+        push
+          (Some
+             (Ai_provider.Stream_part.Tool_call_delta
+                {
+                  tool_call_type = "function";
+                  tool_call_id = "tc_1";
+                  tool_name = "dangerous_action";
+                  args_text_delta = {|{"target":"prod"}|};
+                }));
+        push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = "tc_1" }));
+        push
+          (Some
+             (Ai_provider.Stream_part.Finish
+                { finish_reason = Tool_calls; usage = { input_tokens = 10; output_tokens = 8; total_tokens = Some 18 } }));
+        push None
+      end
+      else begin
+        push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
+        push (Some (Ai_provider.Stream_part.Text { text = "Done!" }));
+        push
+          (Some
+             (Ai_provider.Stream_part.Finish
+                { finish_reason = Stop; usage = { input_tokens = 20; output_tokens = 5; total_tokens = Some 25 } }));
+        push None
+      end;
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  (module M : Ai_provider.Language_model.S)
+
+let test_approved_tool_executes_stream () =
+  (* Model that just returns text — the tool was already executed in the initial step *)
+  let model = make_text_stream_model "Done!" in
+  let tool =
+    Ai_core.Core_tool.create_with_approval ~description:"Dangerous"
+      ~parameters:(`Assoc [ "type", `String "object" ])
+      ~execute:(fun _ -> Lwt.return (`String "executed"))
+      ()
+  in
+  let pending : Ai_core.Generate_text_result.pending_tool_approval =
+    {
+      tool_call_id = "tc_1";
+      tool_name = "dangerous_action";
+      args = `Assoc [ "target", `String "prod" ];
+      approved = true;
+    }
+  in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Do it"
+      ~tools:[ "dangerous_action", tool ]
+      ~pending_tool_approvals:[ pending ] ~max_steps:3 ()
+  in
+  let parts = Lwt_main.run (Lwt_stream.to_list result.full_stream) in
+  (* Initial step should emit Tool_call before Tool_result *)
+  let has_tool_call =
+    List.exists
+      (fun p ->
+        match p with
+        | Ai_core.Text_stream_part.Tool_call { tool_call_id = "tc_1"; _ } -> true
+        | _ -> false)
+      parts
+  in
+  let has_tool_result =
+    List.exists
+      (fun p ->
+        match p with
+        | Ai_core.Text_stream_part.Tool_result { tool_call_id = "tc_1"; _ } -> true
+        | _ -> false)
+      parts
+  in
+  (check bool) "has tool call" true has_tool_call;
+  (check bool) "has tool result" true has_tool_result;
+  (* Verify Tool_call appears before Tool_result *)
+  let tool_call_idx =
+    List.mapi (fun i p -> (i, p)) parts
+    |> List.find_map (fun (i, p) ->
+      match p with
+      | Ai_core.Text_stream_part.Tool_call { tool_call_id = "tc_1"; _ } -> Some i
+      | _ -> None)
+  in
+  let tool_result_idx =
+    List.mapi (fun i p -> (i, p)) parts
+    |> List.find_map (fun (i, p) ->
+      match p with
+      | Ai_core.Text_stream_part.Tool_result { tool_call_id = "tc_1"; _ } -> Some i
+      | _ -> None)
+  in
+  (match tool_call_idx, tool_result_idx with
+  | Some ci, Some ri -> (check bool) "tool_call before tool_result" true (ci < ri)
+  | _ -> Alcotest.fail "expected both tool_call and tool_result");
+  let steps = Lwt_main.run result.steps in
+  (* Initial step (tool execution) + LLM step *)
+  (check int) "2 steps" 2 (List.length steps)
+
+let test_denied_tool_emits_output_denied () =
+  let model = make_text_stream_model "Done!" in
+  let tool =
+    Ai_core.Core_tool.create_with_approval ~description:"Dangerous"
+      ~parameters:(`Assoc [ "type", `String "object" ])
+      ~execute:(fun _ -> Lwt.return (`String "should not execute"))
+      ()
+  in
+  let pending : Ai_core.Generate_text_result.pending_tool_approval =
+    { tool_call_id = "tc_1"; tool_name = "dangerous_action"; args = `Assoc [ "target", `String "prod" ]; approved = false }
+  in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Do it" ~tools:[ "dangerous_action", tool ]
+      ~pending_tool_approvals:[ pending ] ~max_steps:3 ()
+  in
+  let parts = Lwt_main.run (Lwt_stream.to_list result.full_stream) in
+  (* Should emit Tool_output_denied, NOT Tool_result *)
+  let has_denied =
+    List.exists
+      (fun p ->
+        match p with
+        | Ai_core.Text_stream_part.Tool_output_denied { tool_call_id = "tc_1" } -> true
+        | _ -> false)
+      parts
+  in
+  let has_error_result =
+    List.exists
+      (fun p ->
+        match p with
+        | Ai_core.Text_stream_part.Tool_result { tool_call_id = "tc_1"; is_error = true; _ } -> true
+        | _ -> false)
+      parts
+  in
+  (check bool) "has Tool_output_denied" true has_denied;
+  (check bool) "no error Tool_result" false has_error_result
+
+let make_mixed_stream_model () =
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-mixed-stream"
+    let generate _opts = Lwt.fail_with "not implemented"
+
+    let stream _opts =
+      let stream, push = Lwt_stream.create () in
+      push (Some (Ai_provider.Stream_part.Stream_start { warnings = [] }));
+      push (Some (Ai_provider.Stream_part.Text { text = "Doing both." }));
+      push
+        (Some
+           (Ai_provider.Stream_part.Tool_call_delta
+              {
+                tool_call_type = "function";
+                tool_call_id = "tc_safe";
+                tool_name = "safe_action";
+                args_text_delta = {|{"query":"test"}|};
+              }));
+      push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = "tc_safe" }));
+      push
+        (Some
+           (Ai_provider.Stream_part.Tool_call_delta
+              {
+                tool_call_type = "function";
+                tool_call_id = "tc_danger";
+                tool_name = "dangerous_action";
+                args_text_delta = {|{"target":"prod"}|};
+              }));
+      push (Some (Ai_provider.Stream_part.Tool_call_finish { tool_call_id = "tc_danger" }));
+      push
+        (Some
+           (Ai_provider.Stream_part.Finish
+              { finish_reason = Tool_calls; usage = { input_tokens = 10; output_tokens = 15; total_tokens = Some 25 } }));
+      push None;
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  (module M : Ai_provider.Language_model.S)
+
+let test_mixed_tools_safe_executes_stream () =
+  let model = make_mixed_stream_model () in
+  let safe_tool =
+    Ai_core.Core_tool.create ~description:"Safe"
+      ~parameters:(`Assoc [ "type", `String "object" ])
+      ~execute:(fun _ -> Lwt.return (`String "safe result"))
+      ()
+  in
+  let dangerous_tool =
+    Ai_core.Core_tool.create_with_approval ~description:"Dangerous"
+      ~parameters:(`Assoc [ "type", `String "object" ])
+      ~execute:(fun _ -> Lwt.return (`String "dangerous result"))
+      ()
+  in
+  let result =
+    Ai_core.Stream_text.stream_text ~model ~prompt:"Do both"
+      ~tools:[ "safe_action", safe_tool; "dangerous_action", dangerous_tool ]
+      ~max_steps:3 ()
+  in
+  let parts = Lwt_main.run (Lwt_stream.to_list result.full_stream) in
+  (* Only dangerous_action should get approval request *)
+  let approval_requests =
+    List.filter_map
+      (fun p ->
+        match p with
+        | Ai_core.Text_stream_part.Tool_approval_request { tool_call_id; _ } -> Some tool_call_id
+        | _ -> None)
+      parts
+  in
+  (* Safe tool should have a Tool_result *)
+  let safe_tool_results =
+    List.filter_map
+      (fun p ->
+        match p with
+        | Ai_core.Text_stream_part.Tool_result { tool_call_id; _ } -> Some tool_call_id
+        | _ -> None)
+      parts
+  in
+  (match approval_requests with
+  | [ id ] -> (check string) "approval for dangerous" "tc_danger" id
+  | _ -> Alcotest.fail "expected exactly 1 approval request");
+  (match safe_tool_results with
+  | [ id ] -> (check string) "safe tool executed" "tc_safe" id
+  | _ -> Alcotest.fail "expected exactly 1 safe tool result");
+  let steps = Lwt_main.run result.steps in
+  match steps with
+  | [ step ] ->
+    (check int) "step has 2 tool calls" 2 (List.length step.tool_calls);
+    (check int) "step has 1 tool result" 1 (List.length step.tool_results)
+  | _ -> Alcotest.fail "expected exactly 1 step"
+
 let () =
   run "Stream_text"
     [
@@ -221,7 +525,14 @@ let () =
           test_case "full_events" `Quick test_full_stream_events;
           test_case "finish_reason" `Quick test_finish_reason;
         ] );
-      "tools", [ test_case "tool_loop" `Quick test_tool_stream_loop ];
+      ( "tools",
+        [
+          test_case "tool_loop" `Quick test_tool_stream_loop;
+          test_case "approval_stops_stream_loop" `Quick test_approval_stops_stream_loop;
+          test_case "approved_tool_executes" `Quick test_approved_tool_executes_stream;
+          test_case "denied_emits_output_denied" `Quick test_denied_tool_emits_output_denied;
+          test_case "mixed_tools_safe_executes" `Quick test_mixed_tools_safe_executes_stream;
+        ] );
       "callbacks", [ test_case "on_chunk" `Quick test_on_chunk_callback ];
       ( "output",
         [

@@ -44,22 +44,21 @@ type weather_result = {
 [@@deriving to_json]
 
 let get_weather : Ai_core.Core_tool.t =
-  {
-    description = Some "Get the current weather for a city. Returns temperature and conditions.";
-    parameters = json_of_schema city_args_jsonschema;
-    execute =
-      (fun args ->
-        let city = try (city_args_of_json args).city with _ -> "unknown" in
-        let temperature, condition =
-          match String.lowercase_ascii city with
-          | "paris" -> 18, "partly cloudy"
-          | "london" -> 12, "rainy"
-          | "tokyo" -> 26, "sunny"
-          | "new york" -> 15, "windy"
-          | _ -> 20, "clear"
-        in
-        Lwt.return (weather_result_to_json { city; temperature; condition; unit_ = "celsius" }));
-  }
+  Ai_core.Core_tool.create_with_approval
+    ~description:"Get the current weather for a city. Returns temperature and conditions."
+    ~parameters:(json_of_schema city_args_jsonschema)
+    ~execute:(fun args ->
+      let city = try (city_args_of_json args).city with _ -> "unknown" in
+      let temperature, condition =
+        match String.lowercase_ascii city with
+        | "paris" -> 18, "partly cloudy"
+        | "london" -> 12, "rainy"
+        | "tokyo" -> 26, "sunny"
+        | "new york" -> 15, "windy"
+        | _ -> 20, "clear"
+      in
+      Lwt.return (weather_result_to_json { city; temperature; condition; unit_ = "celsius" }))
+    ()
 
 (* --- Tool: search_web --- *)
 
@@ -79,27 +78,25 @@ type search_result_item = {
 type search_results = { results : search_result_item list } [@@deriving to_json]
 
 let search_web : Ai_core.Core_tool.t =
-  {
-    description = Some "Search the web for information. Returns a list of relevant results.";
-    parameters = json_of_schema search_args_jsonschema;
-    execute =
-      (fun args ->
-        let { query; num_results } = try search_args_of_json args with _ -> { query = "unknown"; num_results = 3 } in
-        let n = num_results in
-        let results =
-          List.init (min n 3) (fun i ->
-            {
-              title = Printf.sprintf "Result %d for: %s" (i + 1) query;
-              url = Printf.sprintf "https://example.com/search?q=%s&p=%d" (String.lowercase_ascii query) (i + 1);
-              snippet =
-                Printf.sprintf
-                  "This is a simulated search result about '%s'. In a real implementation, this would query a search \
-                   API."
-                  query;
-            })
-        in
-        Lwt.return (search_results_to_json { results }));
-  }
+  Ai_core.Core_tool.create
+    ~description:"Search the web for information. Returns a list of relevant results."
+    ~parameters:(json_of_schema search_args_jsonschema)
+    ~execute:(fun args ->
+      let { query; num_results } = try search_args_of_json args with _ -> { query = "unknown"; num_results = 3 } in
+      let n = num_results in
+      let results =
+        List.init (min n 3) (fun i ->
+          {
+            title = Printf.sprintf "Result %d for: %s" (i + 1) query;
+            url = Printf.sprintf "https://example.com/search?q=%s&p=%d" (String.lowercase_ascii query) (i + 1);
+            snippet =
+              Printf.sprintf
+                "This is a simulated search result about '%s'. In a real implementation, this would query a search API."
+                query;
+          })
+      in
+      Lwt.return (search_results_to_json { results }))
+    ()
 
 (* --- Tools list --- *)
 
@@ -129,11 +126,7 @@ let system_prompt =
 
 When asked about weather, use the get_weather tool.
 When asked about facts or topics you're not sure about, use the search_web tool.
-You can use multiple tools in sequence to build a complete answer.
-
-Your final response must be structured JSON with:
-- "summary": a concise natural language answer
-- "data": an array of {"label": "...", "value": "..."} key data points|}
+You can use multiple tools in sequence to build a complete answer.|}
 
 (* --- HTTP handler --- *)
 

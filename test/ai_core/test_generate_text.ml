@@ -87,6 +87,7 @@ let search_tool : Ai_core.Core_tool.t =
       (fun args ->
         let query = try (query_args_of_json args).query with _ -> "unknown" in
         Lwt.return (`String (Printf.sprintf "Results for: %s" query)));
+    needs_approval = None;
   }
 
 (* Tests *)
@@ -229,6 +230,249 @@ let test_generate_without_output () =
   | None -> ()
   | Some _ -> fail "expected None when no output spec"
 
+(* Mock model that always returns a single tool call for "dangerous_action" *)
+let make_single_tool_call_model () =
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-approval"
+
+    let generate _opts =
+      Lwt.return
+        {
+          Ai_provider.Generate_result.content =
+            [
+              Ai_provider.Content.Text { text = "Let me check." };
+              Ai_provider.Content.Tool_call
+                {
+                  tool_call_type = "function";
+                  tool_call_id = "tc_1";
+                  tool_name = "dangerous_action";
+                  args = {|{"target":"prod"}|};
+                };
+            ];
+          finish_reason = Ai_provider.Finish_reason.Tool_calls;
+          usage = { input_tokens = 10; output_tokens = 15; total_tokens = Some 25 };
+          warnings = [];
+          provider_metadata = Ai_provider.Provider_options.empty;
+          request = { body = `Null };
+          response = { id = Some "r1"; model = Some "mock-approval"; headers = []; body = `Null };
+        }
+
+    let stream _opts =
+      let stream, push = Lwt_stream.create () in
+      push None;
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  (module M : Ai_provider.Language_model.S)
+
+let approval_tool : Ai_core.Core_tool.t =
+  Ai_core.Core_tool.create_with_approval ~description:"Dangerous"
+    ~parameters:(`Assoc [ "type", `String "object" ])
+    ~execute:(fun _ -> Lwt.return (`String "executed"))
+    ()
+
+let test_approval_stops_loop () =
+  let model = make_single_tool_call_model () in
+  let result =
+    Lwt_main.run
+      (Ai_core.Generate_text.generate_text ~model ~prompt:"Do it"
+         ~tools:[ "dangerous_action", approval_tool ]
+         ~max_steps:3 ())
+  in
+  (check int) "1 step" 1 (List.length result.steps);
+  (check int) "1 tool call" 1 (List.length result.tool_calls);
+  (check int) "0 tool results" 0 (List.length result.tool_results)
+
+let test_no_approval_executes_normally () =
+  let model = make_tool_model () in
+  let no_approval_search_tool : Ai_core.Core_tool.t =
+    Ai_core.Core_tool.create ~description:"Search"
+      ~parameters:(`Assoc [ "type", `String "object" ])
+      ~execute:(fun args ->
+        let query = try (query_args_of_json args).query with _ -> "unknown" in
+        Lwt.return (`String (Printf.sprintf "Results for: %s" query)))
+      ()
+  in
+  let result =
+    Lwt_main.run
+      (Ai_core.Generate_text.generate_text ~model ~prompt:"Search for test"
+         ~tools:[ "search", no_approval_search_tool ]
+         ~max_steps:3 ())
+  in
+  (check int) "2 steps" 2 (List.length result.steps);
+  (check int) "1 tool call" 1 (List.length result.tool_calls);
+  (check int) "1 tool result" 1 (List.length result.tool_results)
+
+let test_dynamic_approval_conditional () =
+  let dynamic_tool : Ai_core.Core_tool.t =
+    Ai_core.Core_tool.create
+      ~needs_approval:(fun args ->
+        let target = try Yojson.Basic.Util.member "target" args |> Yojson.Basic.Util.to_string with _ -> "" in
+        Lwt.return (String.equal target "prod"))
+      ~description:"Dangerous"
+      ~parameters:(`Assoc [ "type", `String "object" ])
+      ~execute:(fun _ -> Lwt.return (`String "executed"))
+      ()
+  in
+  let model = make_single_tool_call_model () in
+  let result =
+    Lwt_main.run
+      (Ai_core.Generate_text.generate_text ~model ~prompt:"Do it"
+         ~tools:[ "dangerous_action", dynamic_tool ]
+         ~max_steps:3 ())
+  in
+  (check int) "1 step" 1 (List.length result.steps);
+  (check int) "1 tool call" 1 (List.length result.tool_calls);
+  (check int) "0 tool results" 0 (List.length result.tool_results)
+
+let test_approved_tool_executes () =
+  (* Model returns tool call for "dangerous_action" on first call, then text on second *)
+  let call_count = ref 0 in
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-approval-exec"
+
+    let generate _opts =
+      incr call_count;
+      match !call_count with
+      | 1 ->
+        Lwt.return
+          {
+            Ai_provider.Generate_result.content =
+              [
+                Ai_provider.Content.Text { text = "Let me check." };
+                Ai_provider.Content.Tool_call
+                  {
+                    tool_call_type = "function";
+                    tool_call_id = "tc_1";
+                    tool_name = "dangerous_action";
+                    args = {|{"target":"prod"}|};
+                  };
+              ];
+            finish_reason = Ai_provider.Finish_reason.Tool_calls;
+            usage = { input_tokens = 10; output_tokens = 15; total_tokens = Some 25 };
+            warnings = [];
+            provider_metadata = Ai_provider.Provider_options.empty;
+            request = { body = `Null };
+            response = { id = Some "r1"; model = Some "mock-approval-exec"; headers = []; body = `Null };
+          }
+      | _ ->
+        Lwt.return
+          {
+            Ai_provider.Generate_result.content = [ Ai_provider.Content.Text { text = "Done!" } ];
+            finish_reason = Ai_provider.Finish_reason.Stop;
+            usage = { input_tokens = 20; output_tokens = 5; total_tokens = Some 25 };
+            warnings = [];
+            provider_metadata = Ai_provider.Provider_options.empty;
+            request = { body = `Null };
+            response = { id = Some "r2"; model = Some "mock-approval-exec"; headers = []; body = `Null };
+          }
+
+    let stream _opts =
+      let stream, push = Lwt_stream.create () in
+      push None;
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  let model = (module M : Ai_provider.Language_model.S) in
+  (* Tool that always needs approval *)
+  let tool =
+    Ai_core.Core_tool.create_with_approval ~description:"Dangerous"
+      ~parameters:(`Assoc [ "type", `String "object" ])
+      ~execute:(fun _ -> Lwt.return (`String "executed"))
+      ()
+  in
+  (* Pass tc_1 as pre-approved pending approval — should execute directly *)
+  let pending : Ai_core.Generate_text_result.pending_tool_approval =
+    { tool_call_id = "tc_1"; tool_name = "dangerous_action"; args = `Assoc [ "target", `String "prod" ]; approved = true }
+  in
+  let result =
+    Lwt_main.run
+      (Ai_core.Generate_text.generate_text ~model ~prompt:"Do it"
+         ~tools:[ "dangerous_action", tool ]
+         ~pending_tool_approvals:[ pending ] ~max_steps:3 ())
+  in
+  (* Initial step executes tool, then LLM step — 3 steps total *)
+  (check bool) "has tool results" true (List.length result.tool_results > 0);
+  match result.tool_results with
+  | tr :: _ -> (check bool) "not error" false tr.is_error
+  | [] -> Alcotest.fail "expected at least one tool result"
+
+(* Mock model that returns two tool calls — one needing approval, one not *)
+let make_mixed_tool_call_model () =
+  let module M : Ai_provider.Language_model.S = struct
+    let specification_version = "V3"
+    let provider = "mock"
+    let model_id = "mock-mixed"
+
+    let generate _opts =
+      Lwt.return
+        {
+          Ai_provider.Generate_result.content =
+            [
+              Ai_provider.Content.Text { text = "Let me do both." };
+              Ai_provider.Content.Tool_call
+                {
+                  tool_call_type = "function";
+                  tool_call_id = "tc_safe";
+                  tool_name = "safe_action";
+                  args = {|{"query":"test"}|};
+                };
+              Ai_provider.Content.Tool_call
+                {
+                  tool_call_type = "function";
+                  tool_call_id = "tc_danger";
+                  tool_name = "dangerous_action";
+                  args = {|{"target":"prod"}|};
+                };
+            ];
+          finish_reason = Ai_provider.Finish_reason.Tool_calls;
+          usage = { input_tokens = 10; output_tokens = 20; total_tokens = Some 30 };
+          warnings = [];
+          provider_metadata = Ai_provider.Provider_options.empty;
+          request = { body = `Null };
+          response = { id = Some "r1"; model = Some "mock-mixed"; headers = []; body = `Null };
+        }
+
+    let stream _opts =
+      let stream, push = Lwt_stream.create () in
+      push None;
+      Lwt.return { Ai_provider.Stream_result.stream; warnings = []; raw_response = None }
+  end in
+  (module M : Ai_provider.Language_model.S)
+
+let test_mixed_tools_safe_executes () =
+  let model = make_mixed_tool_call_model () in
+  let safe_tool =
+    Ai_core.Core_tool.create ~description:"Safe"
+      ~parameters:(`Assoc [ "type", `String "object" ])
+      ~execute:(fun _ -> Lwt.return (`String "safe result"))
+      ()
+  in
+  let dangerous_tool =
+    Ai_core.Core_tool.create_with_approval ~description:"Dangerous"
+      ~parameters:(`Assoc [ "type", `String "object" ])
+      ~execute:(fun _ -> Lwt.return (`String "dangerous result"))
+      ()
+  in
+  let result =
+    Lwt_main.run
+      (Ai_core.Generate_text.generate_text ~model ~prompt:"Do both"
+         ~tools:[ "safe_action", safe_tool; "dangerous_action", dangerous_tool ]
+         ~max_steps:3 ())
+  in
+  (* Safe tool executes, dangerous needs approval — loop stops after 1 step *)
+  (check int) "1 step" 1 (List.length result.steps);
+  (check int) "2 tool calls" 2 (List.length result.tool_calls);
+  (* Safe tool executed, so 1 tool result *)
+  (check int) "1 tool result" 1 (List.length result.tool_results);
+  match result.tool_results with
+  | tr :: _ ->
+    (check string) "safe tool result" {|"safe result"|} (Yojson.Basic.to_string tr.result);
+    (check bool) "not error" false tr.is_error
+  | [] -> Alcotest.fail "expected 1 tool result"
+
 let test_prompt_and_messages_conflict () =
   let model = make_text_model "test" in
   let raised = ref false in
@@ -252,6 +496,14 @@ let () =
           test_case "tool_not_found" `Quick test_tool_not_found;
           test_case "max_steps_1" `Quick test_max_steps_1;
           test_case "on_step_finish" `Quick test_on_step_finish;
+        ] );
+      ( "approval",
+        [
+          test_case "approval_stops_loop" `Quick test_approval_stops_loop;
+          test_case "no_approval_executes_normally" `Quick test_no_approval_executes_normally;
+          test_case "dynamic_approval_conditional" `Quick test_dynamic_approval_conditional;
+          test_case "approved_tool_executes" `Quick test_approved_tool_executes;
+          test_case "mixed_tools_safe_executes" `Quick test_mixed_tools_safe_executes;
         ] );
       "errors", [ test_case "prompt_and_messages" `Quick test_prompt_and_messages_conflict ];
       ( "output",

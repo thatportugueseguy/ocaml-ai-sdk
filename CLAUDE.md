@@ -782,6 +782,10 @@ let is_even n = n land 1 = 0
 2. Type aliases: `type error = Shared_t.error`
 3. Function/variable aliases: `let last_opt = Utils_shared.last_opt`
 
+## AI SDK v6 Upstream Interop
+
+**MUST READ `docs/UPSTREAM_INTEROP.md` before any work on SSE chunks, request parsing, or tool workflows.** It contains wire format rules, upstream reference files, and a full path trace checklist. Failure to follow these rules causes hard runtime errors in the frontend.
+
 ## New Module Checklist
 
 - [ ] Create both .ml and .mli files with documentation

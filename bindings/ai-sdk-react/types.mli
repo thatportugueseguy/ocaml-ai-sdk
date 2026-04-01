@@ -55,6 +55,11 @@ module Tool_part : sig
   val provider_executed : t -> bool option
 end
 
+type tool_approval
+
+val tool_ui_part_approval : tool_ui_part -> tool_approval option
+val tool_approval_id : tool_approval -> string
+
 type source_url_ui_part
 
 (** Source URL citation part. *)
@@ -91,6 +96,15 @@ end
 
 type step_start_ui_part
 
+type data_ui_part
+
+val data_ui_part_data : data_ui_part -> Js.Json.t
+val data_ui_part_id : data_ui_part -> string option
+
+(** The data type name without the ["data-"] prefix.
+    E.g. for a part with type ["data-weather"], returns ["weather"]. *)
+val data_ui_part_data_type : data_ui_part -> string
+
 type ui_message_part
 
 val part_type : ui_message_part -> string
@@ -101,6 +115,7 @@ val as_source_url : ui_message_part -> source_url_ui_part
 val as_source_document : ui_message_part -> source_document_ui_part
 val as_file : ui_message_part -> file_ui_part
 val as_step_start : ui_message_part -> step_start_ui_part
+val as_data : ui_message_part -> data_ui_part
 
 type classified_part =
   | Text of text_ui_part
@@ -110,10 +125,12 @@ type classified_part =
   | Source_document of source_document_ui_part
   | File of file_ui_part
   | Step_start of step_start_ui_part
+  | Data of data_ui_part
   | Unknown of string
 
 (** Classify a message part into a typed variant.
-    Matches both ["dynamic-tool"] and ["tool-*"] prefixed types as [Tool_call]. *)
+    Matches ["dynamic-tool"] and ["tool-*"] as [Tool_call],
+    ["data-*"] as [Data]. *)
 val classify : ui_message_part -> classified_part
 
 (** {1 UI Message} *)

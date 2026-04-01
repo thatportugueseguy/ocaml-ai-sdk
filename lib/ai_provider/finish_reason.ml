@@ -16,6 +16,15 @@ let to_string = function
   | Other s -> s
   | Unknown -> "unknown"
 
+let to_wire_string = function
+  | Stop -> "stop"
+  | Length -> "length"
+  | Tool_calls -> "tool-calls"
+  | Content_filter -> "content-filter"
+  | Error -> "error"
+  | Other s -> s
+  | Unknown -> "other"
+
 let of_string = function
   | "stop" -> Stop
   | "length" -> Length

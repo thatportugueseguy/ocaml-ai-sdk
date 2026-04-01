@@ -4,6 +4,13 @@ type tool_call = {
   args : Yojson.Basic.t;
 }
 
+type pending_tool_approval = {
+  tool_call_id : string;
+  tool_name : string;
+  args : Yojson.Basic.t;
+  approved : bool;
+}
+
 type tool_result = {
   tool_call_id : string;
   tool_name : string;
