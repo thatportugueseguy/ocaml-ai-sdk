@@ -112,11 +112,9 @@ let approval_tools = [ "get_weather", approval_weather; "search_web", search_web
 (* --- Client-side tools (server defines, client provides results) --- *)
 
 let get_location : Ai_core.Core_tool.t =
-  Ai_core.Core_tool.create_with_approval
+  Ai_core.Core_tool.create_client_tool
     ~description:"Get the user's current location. The browser provides this data."
     ~parameters:(`Assoc [ "type", `String "object"; "properties", `Assoc [] ])
-    ~execute:(fun _args ->
-      Lwt.return (`String "Location provided by client"))
     ()
 
 let client_tools_list = [ "get_location", get_location; "get_weather", approval_weather ]
@@ -276,7 +274,9 @@ let handler conn req body =
   | `POST, "/api/chat/structured" ->
     Ai_core.Server_handler.handle_chat ~model ~system:structured_system ~tools ~max_steps:5 ~output conn req body
   | `POST, "/api/chat/client-tools" ->
-    Ai_core.Server_handler.handle_chat ~model ~system:client_tools_system ~tools:client_tools_list ~max_steps:5 conn req body
+    (* Sonnet for this demo — Haiku struggles with multi-step tool chaining *)
+    let client_tools_model = Ai_provider_anthropic.model "claude-sonnet-4-6" in
+    Ai_core.Server_handler.handle_chat ~model:client_tools_model ~system:client_tools_system ~tools:client_tools_list ~max_steps:5 conn req body
   | `POST, "/api/chat/completion" ->
     handle_completion ~model conn req body
   | `POST, "/api/chat/approval" ->

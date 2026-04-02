@@ -276,12 +276,16 @@ let render_step_start ~key =
     ~marginBottom:"4px"
     ()) />
 
-let render_part chat i part =
+let render_part ?render_controls chat i part =
   let key = string_of_int i in
   match classify part with
   | Text p -> render_text_part ~key p
   | Reasoning p -> render_reasoning_part ~key p
-  | Tool_call p -> render_tool_part ~chat ~key p
+  | Tool_call p ->
+    let tool_card = render_tool_part ~chat ~key p in
+    (match render_controls with
+    | Some f -> React.array [| tool_card; f ~chat ~key:(key ^ "-ctrl") p |]
+    | None -> tool_card)
   | Source_url p -> render_source_url_part ~key p
   | Source_document _ -> React.null
   | File p -> render_file_part ~key p
@@ -310,7 +314,7 @@ let role_style ~is_user =
     ~letterSpacing:"0.05em"
     ()
 
-let render ~chat ~msg =
+let render ~chat ?render_controls ~msg () =
   let role = Message.role msg in
   let is_user =
     match role with
@@ -321,7 +325,7 @@ let render ~chat ~msg =
   let parts =
     Message.parts msg
     |> Array.to_list
-    |> List.mapi (render_part chat)
+    |> List.mapi (render_part ?render_controls chat)
     |> Array.of_list
     |> React.array
   in

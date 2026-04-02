@@ -216,21 +216,25 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
           | Some Auto | Some Required | Some (Specific _) | None -> true
         in
         if should_continue then begin
-          let%lwt pending_approval_calls, executable_calls = Core_tool.evaluate_approvals ~tools tool_calls in
+          let%lwt blocked_calls, executable_calls = Core_tool.evaluate_approvals ~tools tool_calls in
           let%lwt tool_results = Lwt_list.map_s execute_and_emit executable_calls in
+          (* Emit approval requests only for tools that have needs_approval (not client-only tools) *)
           List.iter
             (fun (tc : Generate_text_result.tool_call) ->
-              let approval_id = next_approval_id id_gen in
-              emit_event
-                (Text_stream_part.Tool_approval_request
-                   { approval_id; tool_call_id = tc.tool_call_id; tool_name = tc.tool_name; args = tc.args }))
-            pending_approval_calls;
+              match List.assoc_opt tc.tool_name tools with
+              | Some { Core_tool.needs_approval = Some _; _ } ->
+                let approval_id = next_approval_id id_gen in
+                emit_event
+                  (Text_stream_part.Tool_approval_request
+                     { approval_id; tool_call_id = tc.tool_call_id; tool_name = tc.tool_name; args = tc.args })
+              | _ -> ())
+            blocked_calls;
           let step : Generate_text_result.step =
             { text; reasoning; tool_calls; tool_results; finish_reason = fr; usage = step_usage }
           in
           Option.iter (fun f -> f step) on_step_finish;
           emit_event (Text_stream_part.Finish_step { finish_reason = fr; usage = step_usage });
-          match pending_approval_calls with
+          match blocked_calls with
           | _ :: _ ->
             (* Some tools need approval — stop the stream *)
             emit_event (Text_stream_part.Finish { finish_reason = fr; usage = new_total });

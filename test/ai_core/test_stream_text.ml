@@ -86,9 +86,10 @@ let search_tool : Ai_core.Core_tool.t =
     description = Some "Search";
     parameters = `Assoc [ "type", `String "object" ];
     execute =
-      (fun args ->
-        let q = try (query_args_of_json args).query with _ -> "?" in
-        Lwt.return (`String (Printf.sprintf "Results for: %s" q)));
+      Some
+        (fun args ->
+          let q = try (query_args_of_json args).query with _ -> "?" in
+          Lwt.return (`String (Printf.sprintf "Results for: %s" q)));
     needs_approval = None;
   }
 
