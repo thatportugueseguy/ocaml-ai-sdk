@@ -351,8 +351,7 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
             approvals
             |> List.filter (fun (ta : Generate_text_result.pending_tool_approval) -> not ta.approved)
             |> List.iter (fun (ta : Generate_text_result.pending_tool_approval) ->
-                 emit_event
-                   (Text_stream_part.Tool_output_denied { tool_call_id = ta.tool_call_id }));
+              emit_event (Text_stream_part.Tool_output_denied { tool_call_id = ta.tool_call_id }));
             let%lwt tool_results =
               Lwt_list.map_s
                 (fun (ta : Generate_text_result.pending_tool_approval) ->
@@ -366,18 +365,13 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
                         is_error = false;
                       }
                   | true ->
-                    execute_and_emit
-                      { tool_call_id = ta.tool_call_id; tool_name = ta.tool_name; args = ta.args })
+                    execute_and_emit { tool_call_id = ta.tool_call_id; tool_name = ta.tool_name; args = ta.args })
                 approvals
             in
             let tool_calls =
               List.map
                 (fun (ta : Generate_text_result.pending_tool_approval) ->
-                  {
-                    Generate_text_result.tool_call_id = ta.tool_call_id;
-                    tool_name = ta.tool_name;
-                    args = ta.args;
-                  })
+                  { Generate_text_result.tool_call_id = ta.tool_call_id; tool_name = ta.tool_name; args = ta.args })
                 approvals
             in
             let step : Generate_text_result.step =
@@ -411,9 +405,7 @@ let stream_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_provi
                   })
                 tool_results
             in
-            let updated_messages =
-              initial_messages @ [ Ai_provider.Prompt.Tool { content = tool_result_parts } ]
-            in
+            let updated_messages = initial_messages @ [ Ai_provider.Prompt.Tool { content = tool_result_parts } ] in
             Lwt.return (updated_messages, [ step ])
         in
         step_loop ~current_messages:start_messages ~steps:(List.rev initial_steps)

@@ -97,18 +97,18 @@ let resolve_tool_name (p : parsed_part) =
     let t = p.type_ in
     let prefix = "tool-" in
     let plen = String.length prefix in
-    match String.length t > plen && String.sub t 0 plen = prefix with
+    (match String.length t > plen && String.sub t 0 plen = prefix with
     | true -> Some (String.sub t plen (String.length t - plen))
-    | false -> None
+    | false -> None)
 
 (** Extract approved status: check top-level [approved] first, then [approval.approved]. *)
 let resolve_approved (p : parsed_part) =
   match p.approved with
   | Some v -> Some v
   | None ->
-    match p.approval with
-    | Some a -> a.approved
-    | None -> None
+  match p.approval with
+  | Some a -> a.approved
+  | None -> None
 
 let parse_file_data (p : parsed_part) =
   match p.media_type with

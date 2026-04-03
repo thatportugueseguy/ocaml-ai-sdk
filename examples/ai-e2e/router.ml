@@ -69,7 +69,8 @@ let route_label = function
 let is_stub = function
   | Web_search | File_attachments -> true
   | Basic_chat | Tool_use | Reasoning | Structured_output | Abort_stop | Retry_regenerate | Client_tools | Completion
-  | Tool_approval -> false
+  | Tool_approval ->
+    false
 
 let route_description = function
   | Basic_chat -> "Simple streaming chat with useChat hook"

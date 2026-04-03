@@ -16,7 +16,7 @@ let create_client_tool ?description ~parameters () = { description; parameters; 
 let safe_parse_json_args s =
   match s with
   | "" -> `Assoc []
-  | _ -> (try Yojson.Basic.from_string s with Yojson.Json_error _ -> `String s)
+  | _ -> try Yojson.Basic.from_string s with Yojson.Json_error _ -> `String s
 
 let denied_result = `Assoc [ "type", `String "execution-denied" ]
 

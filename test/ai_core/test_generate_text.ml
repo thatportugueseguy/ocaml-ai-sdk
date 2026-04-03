@@ -386,7 +386,12 @@ let test_approved_tool_executes () =
   in
   (* Pass tc_1 as pre-approved pending approval — should execute directly *)
   let pending : Ai_core.Generate_text_result.pending_tool_approval =
-    { tool_call_id = "tc_1"; tool_name = "dangerous_action"; args = `Assoc [ "target", `String "prod" ]; approved = true }
+    {
+      tool_call_id = "tc_1";
+      tool_name = "dangerous_action";
+      args = `Assoc [ "target", `String "prod" ];
+      approved = true;
+    }
   in
   let result =
     Lwt_main.run

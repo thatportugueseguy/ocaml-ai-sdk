@@ -21,5 +21,4 @@ let use_provider () = React.useContext react_context
 
 let context_provider = React.Context.provider react_context
 
-let make_provider ~value children =
-  React.createElement context_provider (React.Context.makeProps ~value ~children ())
+let make_provider ~value children = React.createElement context_provider (React.Context.makeProps ~value ~children ())

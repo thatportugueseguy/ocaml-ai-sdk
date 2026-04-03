@@ -167,8 +167,7 @@ let generate_text ~model ?system ?prompt ?messages ?tools ?(tool_choice : Ai_pro
                   result = Core_tool.denied_result;
                   is_error = false;
                 }
-            | true ->
-              Core_tool.execute_tool ~tools ~tool_call_id:ta.tool_call_id ~tool_name:ta.tool_name ~args:ta.args)
+            | true -> Core_tool.execute_tool ~tools ~tool_call_id:ta.tool_call_id ~tool_name:ta.tool_name ~args:ta.args)
           approvals
       in
       let tool_calls =

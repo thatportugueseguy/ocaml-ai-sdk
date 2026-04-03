@@ -28,7 +28,11 @@ let test_tool_execute () =
       needs_approval = None;
     }
   in
-  let exec = match tool.execute with Some f -> f | None -> failwith "expected execute" in
+  let exec =
+    match tool.execute with
+    | Some f -> f
+    | None -> failwith "expected execute"
+  in
   let result = Lwt_main.run (exec (`Assoc [ "query", `String "ocaml" ])) in
   (check string) "result" {|"Found: ocaml"|} (Yojson.Basic.to_string result)
 

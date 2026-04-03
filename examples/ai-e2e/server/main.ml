@@ -38,8 +38,7 @@ type weather_result = {
 [@@deriving to_json]
 
 let get_weather : Ai_core.Core_tool.t =
-  Ai_core.Core_tool.create
-    ~description:"Get the current weather for a city. Returns temperature and conditions."
+  Ai_core.Core_tool.create ~description:"Get the current weather for a city. Returns temperature and conditions."
     ~parameters:(json_of_schema city_args_jsonschema)
     ~execute:(fun args ->
       let city = try (city_args_of_json args).city with _ -> "unknown" in
@@ -70,8 +69,7 @@ type search_result_item = {
 type search_results = { results : search_result_item list } [@@deriving to_json]
 
 let search_web : Ai_core.Core_tool.t =
-  Ai_core.Core_tool.create
-    ~description:"Search the web for information. Returns a list of relevant results."
+  Ai_core.Core_tool.create ~description:"Search the web for information. Returns a list of relevant results."
     ~parameters:(json_of_schema search_args_jsonschema)
     ~execute:(fun args ->
       let { query; num_results } = try search_args_of_json args with _ -> { query = "unknown"; num_results = 3 } in
@@ -112,8 +110,7 @@ let approval_tools = [ "get_weather", approval_weather; "search_web", search_web
 (* --- Client-side tools (server defines, client provides results) --- *)
 
 let get_location : Ai_core.Core_tool.t =
-  Ai_core.Core_tool.create_client_tool
-    ~description:"Get the user's current location. The browser provides this data."
+  Ai_core.Core_tool.create_client_tool ~description:"Get the user's current location. The browser provides this data."
     ~parameters:(`Assoc [ "type", `String "object"; "properties", `Assoc [] ])
     ()
 
@@ -181,18 +178,13 @@ let handle_completion ~model conn req body =
   ignore (conn : Cohttp_lwt_unix.Server.conn);
   ignore (req : Cohttp.Request.t);
   let%lwt body_str = Cohttp_lwt.Body.to_string body in
-  let prompt =
-    try (completion_request_of_json (Yojson.Basic.from_string body_str)).prompt
-    with _ -> ""
-  in
-  let result =
-    Ai_core.Stream_text.stream_text ~model ~system:basic_system ~prompt ()
-  in
+  let prompt = try (completion_request_of_json (Yojson.Basic.from_string body_str)).prompt with _ -> "" in
+  let result = Ai_core.Stream_text.stream_text ~model ~system:basic_system ~prompt () in
   let body = Cohttp_lwt.Body.of_stream result.text_stream in
   let headers =
     Cohttp.Header.of_list
       ([ "content-type", "text/plain; charset=utf-8"; "cache-control", "no-cache" ]
-       @ Ai_core.Server_handler.cors_headers)
+      @ Ai_core.Server_handler.cors_headers)
   in
   Lwt.return (Cohttp.Response.make ~status:`OK ~headers (), body)
 
@@ -202,13 +194,7 @@ let static_dir =
   let exe_dir = Filename.dirname Sys.executable_name in
   (* When running via dune exec, the executable is in _build/.../server/
      but the static files are in examples/ai-e2e/ *)
-  let candidates =
-    [
-      Filename.concat exe_dir "../";
-      "examples/ai-e2e/";
-      ".";
-    ]
-  in
+  let candidates = [ Filename.concat exe_dir "../"; "examples/ai-e2e/"; "." ] in
   match List.find_opt (fun d -> Sys.file_exists (Filename.concat d "index.html")) candidates with
   | Some d -> d
   | None -> "examples/ai-e2e/"
@@ -252,10 +238,10 @@ let handler conn req body =
   let meth = Cohttp.Request.meth req in
   Printf.printf "[%s] %s\n%!"
     (match meth with
-     | `GET -> "GET"
-     | `POST -> "POST"
-     | `OPTIONS -> "OPTIONS"
-     | _ -> "OTHER")
+    | `GET -> "GET"
+    | `POST -> "POST"
+    | `OPTIONS -> "OPTIONS"
+    | _ -> "OTHER")
     path;
   let provider = provider_of_request req in
   let model = model_of_provider provider in
@@ -264,8 +250,7 @@ let handler conn req body =
   | `OPTIONS, _ when String.length path >= 9 && String.sub path 0 9 = "/api/chat" ->
     Ai_core.Server_handler.handle_cors_preflight conn req body
   (* Chat endpoints *)
-  | `POST, "/api/chat/basic" ->
-    Ai_core.Server_handler.handle_chat ~model ~system:basic_system conn req body
+  | `POST, "/api/chat/basic" -> Ai_core.Server_handler.handle_chat ~model ~system:basic_system conn req body
   | `POST, "/api/chat/tools" ->
     Ai_core.Server_handler.handle_chat ~model ~system:tools_system ~tools ~max_steps:5 conn req body
   | `POST, "/api/chat/reasoning" ->
@@ -276,17 +261,15 @@ let handler conn req body =
   | `POST, "/api/chat/client-tools" ->
     (* Sonnet for this demo — Haiku struggles with multi-step tool chaining *)
     let client_tools_model = Ai_provider_anthropic.model "claude-sonnet-4-6" in
-    Ai_core.Server_handler.handle_chat ~model:client_tools_model ~system:client_tools_system ~tools:client_tools_list ~max_steps:5 conn req body
-  | `POST, "/api/chat/completion" ->
-    handle_completion ~model conn req body
+    Ai_core.Server_handler.handle_chat ~model:client_tools_model ~system:client_tools_system ~tools:client_tools_list
+      ~max_steps:5 conn req body
+  | `POST, "/api/chat/completion" -> handle_completion ~model conn req body
   | `POST, "/api/chat/approval" ->
     Ai_core.Server_handler.handle_chat ~model ~system:approval_system ~tools:approval_tools ~max_steps:5 conn req body
-  | `POST, "/api/chat/web-search" ->
-    Ai_core.Server_handler.handle_chat ~model ~system:basic_system conn req body
+  | `POST, "/api/chat/web-search" -> Ai_core.Server_handler.handle_chat ~model ~system:basic_system conn req body
   (* Static files *)
   | `GET, "/" -> serve_static "index.html"
-  | `GET, p when String.length p > 1 ->
-    serve_static (String.sub p 1 (String.length p - 1))
+  | `GET, p when String.length p > 1 -> serve_static (String.sub p 1 (String.length p - 1))
   | _ ->
     let headers = Cohttp.Header.of_list [ "content-type", "text/plain" ] in
     Lwt.return (Cohttp.Response.make ~status:`Not_found ~headers (), Cohttp_lwt.Body.of_string "Not found")
